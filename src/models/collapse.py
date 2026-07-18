@@ -3,6 +3,8 @@
 # Following VICReg (Bardes et al., ICLR 2022), I-JEPA (Assran et al., CVPR 2023),
 # data2vec 2.0 (Baevski et al., 2023), C-JEPA (NeurIPS 2024)
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -120,35 +122,57 @@ class CollapseDiagnostics(nn.Module):
 
     @staticmethod
     def _effective_rank(x):
-        """Shannon entropy of normalized singular values (NextLat / I-JEPA)."""
+        """Shannon entropy of normalized singular values (NextLat / I-JEPA).
+
+        NextLat model_base pattern: catches SVD failures, returns 0.0.
+        Also handles all-zero input (sum=0 → NaN) by returning 0.0.
+        """
         flat = x.reshape(-1, x.size(-1))
         try:
             S = torch.linalg.svdvals(flat)
-            S_norm = S / S.sum()
+            total = S.sum()
+            if total == 0 or not torch.isfinite(total):
+                return 0.0
+            S_norm = S / total
             S_norm = torch.clamp(S_norm, min=1e-12)
             entropy = -torch.sum(S_norm * torch.log(S_norm))
-            return entropy.exp().item()
+            val = entropy.exp().item()
+            if not math.isfinite(val):
+                return 0.0
+            return val
         except Exception:
             return 0.0
 
     @staticmethod
     def _participation_ratio(x):
-        """(sum S)^2 / sum(S^2). PR=1 means 1D collapse."""
+        """(sum S)^2 / sum(S^2). PR=1 means 1D collapse.
+
+        NextLat pattern: exception handling returns 0.0, NaN-guard for zero input.
+        """
         flat = x.reshape(-1, x.size(-1))
         try:
             S = torch.linalg.svdvals(flat)
-            return (S.sum() ** 2 / (S ** 2).sum()).item()
+            sum_sq = (S ** 2).sum()
+            if sum_sq == 0 or not torch.isfinite(sum_sq):
+                return 0.0
+            val = (S.sum() ** 2 / sum_sq).item()
+            if not math.isfinite(val):
+                return 0.0
+            return val
         except Exception:
             return 0.0
 
     @staticmethod
     def _condition_number(x):
+        """Condition number S[0]/S[-1]. NextLat pattern: inf for degenerate input."""
         flat = x.reshape(-1, x.size(-1))
         try:
             S = torch.linalg.svdvals(flat)
-            if S[0] > 0 and S[-1] > 0:
-                return (S[0] / S[-1]).item()
-            return float('inf')
+            if S[-1] == 0 or not torch.isfinite(S[-1]):
+                return float('inf')
+            if S[0] == 0 or not torch.isfinite(S[0]):
+                return float('inf')
+            return (S[0] / S[-1]).item()
         except Exception:
             return float('inf')
 
@@ -162,13 +186,23 @@ class CollapseDiagnostics(nn.Module):
 
     @staticmethod
     def _coherence(x):
+        """Max absolute off-diagonal element of covariance. NextLat pattern."""
         flat = x.reshape(-1, x.size(-1))
         try:
             centered = flat - flat.mean(dim=0)
-            cov = (centered.T @ centered) / max(flat.size(0) - 1, 1)
+            N = max(flat.size(0) - 1, 1)
+            cov = (centered.T @ centered) / N
+            # All-zero input → cov is all zeros → coherence = 0
+            if cov.abs().max().item() == 0:
+                return 0.0
             diag = torch.diag(torch.diag(cov))
             off_diag = cov - diag
             D = x.size(-1)
-            return off_diag.abs().max().item() if D > 1 else 0.0
+            if D <= 1:
+                return 0.0
+            val = off_diag.abs().max().item()
+            if not math.isfinite(val):
+                return 0.0
+            return val
         except Exception:
             return 0.0
