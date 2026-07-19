@@ -1,0 +1,42 @@
+name: Tests & Lint
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: ['*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pytest tests/ -v --tb=short
+
+  lint:
+    name: ruff + black
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install ruff black==25.1.0
+      - run: ruff check .
+      - shell: bash
+        run: |
+          python -m black --check . || (echo -e "---\nTo fix, run:\n\tpython -m black ."; exit 1)
