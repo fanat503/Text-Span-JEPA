@@ -26,6 +26,9 @@ class VarianceRegularization(nn.Module):
         if representations.dim() == 3:
             B, T, D = representations.shape
             representations = representations.reshape(B * T, D)
+        N = representations.size(0)
+        if N <= 1:
+            return torch.tensor(0.0, device=representations.device, requires_grad=True)
         var = representations.var(dim=0)
         loss = F.relu(self.margin - (var + self.eps).sqrt()).mean()
         return loss
@@ -48,7 +51,8 @@ class CovarianceRegularization(nn.Module):
             representations = representations.reshape(B * T, D)
         N, D = representations.shape
         representations = representations - representations.mean(dim=0)
-        cov = (representations.T @ representations) / (N - 1)
+        denom = max(N - 1, 1)
+        cov = (representations.T @ representations) / denom
         diag = torch.diag(torch.diag(cov))
         off_diag = cov - diag
         loss = off_diag.pow(2).sum() / D

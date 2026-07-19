@@ -193,6 +193,8 @@ class TextSpanJEPA(nn.Module):
 
         # === Future loss with warmup (Fix #2) ===
         loss_future = sum(future_losses.values()) / max(len(future_losses), 1)
+        if isinstance(loss_future, (int, float)):
+            loss_future = torch.tensor(float(loss_future), device=h_online.device)
         future_weight = self._future_loss_weight(current_step)
 
         # === Decoder loss (tied, auxiliary grounding) ===
