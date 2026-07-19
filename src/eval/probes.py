@@ -39,7 +39,7 @@ class LinearProbe:
                 loss.backward()
                 optimizer.step()
 
-        # Evaluate final accuracy on the same data (for quick sanity check)
+        # Evaluate final accuracy on the same data
         correct = 0
         total = 0
         with torch.no_grad():
@@ -105,13 +105,8 @@ class FutureTokenProbe:
 class GeometryMetrics:
     """Representation geometry metrics — reuses CollapseDiagnostics.
 
-    From I-JEPA / NextLat / C-JEPA:
-    - effective_rank (Shannon entropy of singular values)
-    - participation_ratio (effective dimensionality)
-    - condition_number, numerical_rank, rank_utilization
-    - coherence
-
-    NextLat pattern: exception handling returns zeros/infs (not crashes).
+    From I-JEPA, NextLat, VICReg, Barlow Twins, DINO, C-JEPA.
+    Exception handling follows NextLat: try/except returns zeros/infs.
     """
 
     _diag = CollapseDiagnostics()
@@ -127,17 +122,18 @@ class GeometryMetrics:
 
         metrics = {}
         try:
-            # Reuse CollapseDiagnostics methods (with NaN-guards)
-            metrics['effective_rank'] = GeometryMetrics._diag._effective_rank(representations)
-            metrics['participation_ratio'] = GeometryMetrics._diag._participation_ratio(representations)
-            metrics['condition_number'] = GeometryMetrics._diag._condition_number(representations)
-            metrics['numerical_rank'] = GeometryMetrics._diag._numerical_rank(representations)
+            d = GeometryMetrics._diag
+            metrics['effective_rank'] = d._effective_rank(representations)
+            metrics['participation_ratio'] = d._participation_ratio(representations)
+            metrics['condition_number'] = d._condition_number(representations)
+            metrics['numerical_rank'] = d._numerical_rank(representations)
             metrics['rank_utilization'] = metrics['numerical_rank'] / min(N, D) if min(N, D) > 0 else 0.0
-            metrics['coherence'] = GeometryMetrics._diag._coherence(representations)
+            metrics['coherence'] = d._coherence(representations)
+            metrics['collapsed_dim_ratio'] = d._collapsed_dim_ratio(representations)
         except Exception as e:
             metrics['error'] = str(e)
             for key in ['effective_rank', 'participation_ratio', 'numerical_rank',
-                        'rank_utilization', 'coherence']:
+                        'rank_utilization', 'coherence', 'collapsed_dim_ratio']:
                 metrics.setdefault(key, 0.0)
             metrics.setdefault('condition_number', float('inf'))
 

@@ -1,97 +1,109 @@
 # Text-Span JEPA
 
-Latent Predictive Learning for Language Representations
+Latent predictive learning for language representations.
 
-[![Tests](https://github.com/fanat503/Text-Span-JEPA/actions/workflows/ci.yaml/badge.svg)](https://github.com/fanat503/Text-Span-JEPA/actions/workflows/ci.yaml)
+The core idea is simple: instead of reconstructing tokens, predict latent representations at masked spans and future positions. This follows the JEPA framework (LeCun 2022) — the predictor operates in representation space, not pixel/token space.
 
----
-
-## Installation
+## Setup
 
 ```bash
 pip install -r requirements.txt
 pip install -e ".[dev]"
 ```
 
+Requires Python 3.9+ and PyTorch 2.0+. We train on WikiText-103 out of the box; swap the dataset loader for anything else.
+
 ## Training
 
 ```bash
-# Single GPU
-python -m src.train --fname configs/base.yaml
-
-# Debug (tiny model)
-bash scripts/debug.sh
-
-# Kaggle T4
-bash scripts/train_kaggle.sh
+python -m src.train --fname configs/small-100m.yaml
 ```
 
-Config files are in `configs/`. All hyperparameters are specified there — no command-line overrides needed (following I-JEPA).
+Configs live in `configs/`. No CLI overrides — everything is in the YAML (same as I-JEPA).
 
-To resume from a checkpoint, set `meta.load_checkpoint: true` in the config YAML.
+To resume: set `meta.load_checkpoint: true` in the config. It picks up `checkpoint-latest.pth.tar` from the log directory.
 
-## Method
+### Available configs
 
-Text-Span JEPA extends the Joint-Embedding Predictive Architecture (JEPA) framework to bidirectional text. The model predicts latent representations — not tokens — at masked spans and future positions.
+| Config | Params | GPU memory | Epochs | Notes |
+|--------|--------|-----------|--------|-------|
+| `debug.yaml` | ~0.5M | CPU | 2 | Sanity check |
+| `small-100m.yaml` | ~90M | 16 GB | 30 | V100 / RTX 3090 |
+| `base-200m.yaml` | ~140M | 24 GB | 50 | A5000 / L4 |
+| `large-350m.yaml` | ~280M | 40 GB | 50 | A100 |
+| `kaggle.yaml` | ~140M | 16 GB (T4) | 50 | Kaggle-specific paths |
 
-Key components:
+All configs target 2B training tokens by default. Adjust `data.batch_size` and `optimization.epochs` to match your hardware.
 
-- **Span-level latent prediction**: contiguous block masking in latent space (adapted from I-JEPA multiblock masking for 1D text)
-- **Future latent prediction**: multi-offset queries predict h[t+d] from h[t] (following NextLat)
-- **Iterative refinement**: multiple predictor passes in latent space — the encoder is not re-run
-- **Scheduled EMA τ**: linear ramp from 0.996 → 1.0, same formula as I-JEPA: `τ(i) = τ_start + i·(τ_end − τ_start) / total_steps`
-- **VICReg collapse prevention**: variance margin + covariance decorrelation + target centering (data2vec)
+## What's going on
 
-## Code Structure
+The architecture has three moving parts:
 
-```
-├── src/models/       encoder, predictor, decoder, collapse, jepa
-├── src/masks/        span masking with curriculum
-├── src/datasets/     WikiText-103 / BookCorpus for Kaggle
-├── src/utils/        schedulers, logging (from I-JEPA)
-├── src/eval/         linear probe, future-token probe, geometry metrics
-├── baselines/        data2vec (from official fairseq), MLM
-├── configs/          base.yaml, debug.yaml, kaggle.yaml
-├── tests/            56 tests
-└── scripts/          train_kaggle.sh, debug.sh
-```
+**Encoder** — bidirectional Transformer (same as I-JEPA's ViT, but for 1D text). Shared between online and target. The target encoder is an EMA copy with scheduled τ ramping from 0.996→1.0 — this is important, constant τ doesn't work well (I-JEPA's momentum schedule).
 
-The main differences between algorithms can be understood via their `compute_loss()` functions (following NextLat).
+**Predictor** — narrow Transformer that takes encoder output, inserts mask tokens at span positions, and predicts the target latent. Two prediction modes run simultaneously:
+- *Span prediction*: mask contiguous blocks, predict their latents. The predictor does iterative refinement (multiple cheap passes, no encoder re-run).
+- *Future prediction*: predict h[t+d] from h[t] with learned offset queries. Lightweight — no iterative refinement here, just a single forward pass.
 
-## Algorithms
+**Decoder** — tiny weight-tied projection back to token space. This is auxiliary: if representations collapse to a uniform vector, the decoder can't predict different tokens, so it acts as an anti-collapse signal.
 
-| File | Algorithm |
-|------|-----------|
-| `src/models/jepa.py` | Text-Span JEPA (span + future latent prediction) |
-| `baselines/data2vec_baseline.py` | data2vec (token-level regression, from fairseq) |
-| `baselines/mlm_baseline.py` | MLM (BERT-style token reconstruction) |
+**Collapse prevention** — VICReg terms (variance margin + covariance decorrelation) plus data2vec-style target centering. These are the standard safeguards; without them, JEPA models can silently collapse (loss goes down but representations become useless).
 
 ## Loss
 
 ```
-L = λ_span · L_span + λ_future · L_future + λ_dec · L_decoder
-  + λ_var · L_variance + λ_cov · L_covariance
+L = λ_span · smooth_l1(z_pred, z_target) 
+  + λ_future · smooth_l1(z_future, z_target_future)
+  + λ_dec · cross_entropy(logits, tokens)
+  + λ_var · max(0, margin - sqrt(var)) 
+  + λ_cov · off_diag(cov)²
 ```
 
-- `L_span`: smooth L1 between predicted and target latent at masked positions (I-JEPA)
-- `L_future`: multi-offset future latent prediction with warmup from 0 (NextLat)
-- `L_decoder`: cross-entropy on tied decoder — anti-collapse grounding
-- `L_variance`, `L_covariance`: VICReg collapse prevention
+Future loss has a warmup: λ_future ramps from 0 over the first N steps. Without this, the target encoder is too unstable early on and the future prediction loss injects noise.
 
-## Code Provenance
+## Code structure
 
-Patterns reproduced with variable names changed, logic preserved:
+```
+src/models/       encoder, predictor, decoder, collapse diagnostics, main model
+src/masks/        span masking with curriculum
+src/datasets/     WikiText-103 / BookCorpus loader (Kaggle-compatible)
+src/utils/        schedulers and logging (from I-JEPA)
+src/eval/         linear probe, future-token probe, geometry metrics
+baselines/        data2vec (from official fairseq), MLM
+configs/          per-size YAML configs
+tests/            64 tests
+```
 
-| Source | Pattern | File |
-|--------|---------|------|
-| I-JEPA `src/train.py` | momentum_scheduler, smooth_l1_loss, layer_norm on targets, train_step closure | `src/train.py` |
-| I-JEPA `src/helper.py` | init_opt param_groups, trunc_normal_ init, depth-wise rescaling | `src/models/encoder.py` |
-| I-JEPA `src/utils/logging.py` | AverageMeter, CSVLogger, grad_logger | `src/utils/logging.py` |
-| I-JEPA `src/utils/schedulers.py` | WarmupCosineSchedule, CosineWDSchedule | `src/utils/schedulers.py` |
-| data2vec `data2vec_text.py:58` | `get_annealed_rate()` | `baselines/data2vec_baseline.py` |
-| data2vec `data2vec_text.py:301` | regression_head: Linear→GELU→Linear | `baselines/data2vec_baseline.py` |
-| data2vec `data2vec_text.py:474` | loss: smooth_l1/mse, scale=1/√dim | `baselines/data2vec_baseline.py` |
-| NextLat `model_base.py` | compute_hidden_state_rank: effective_rank, exception→0 | `src/models/collapse.py` |
+The differences between Text-Span JEPA, data2vec, and MLM are best understood by reading their respective `compute_loss()` functions (this follows NextLat's convention).
+
+## Diagnostics
+
+One thing the papers don't emphasize enough: you cannot debug a JEPA by watching loss decrease. You need auxiliary diagnostics. We compute these every step:
+
+| Metric | Source | What to look for |
+|--------|--------|-----------------|
+| effective_rank | NextLat | Should stay >5, collapse → 1 |
+| participation_ratio | Roy & Vetterli | >1, collapse → 1 |
+| collapsed_dim_ratio | lang-jepa | Near 0 is healthy, →1 is collapse |
+| rank_utilization | NextLat | 0.3–0.9 healthy |
+| condition_number | NextLat | 10–1000 healthy, ∞ is degenerate |
+| coherence | NextLat | Low is healthy |
+| cross_corr_redundancy | Barlow Twins | Near 0 is healthy |
+| cka_linear | Kornblith et al. | Online-target similarity |
+| online_std | I-JEPA | Near 0 → collapse |
+
+The code follows NextLat's exception pattern: if SVD or any metric computation fails, return 0.0 (or inf for condition_number). Never crash the training loop.
+
+## Code provenance
+
+Patterns from reference implementations, with names changed:
+
+- I-JEPA: momentum scheduler, param groups, smooth_l1 loss, layer_norm on targets, trunc_normal_ init, depth-wise rescaling, AverageMeter, CSVLogger, grad_logger, WarmupCosineSchedule, CosineWDSchedule
+- data2vec: `get_annealed_rate`, regression head (Linear→GELU→Linear), loss scaling by 1/√dim, target centering
+- NextLat: `compute_hidden_state_rank` with effective_rank via Shannon entropy, exception→0.0 pattern, rank_utilization
+- VICReg: variance margin, off-diagonal covariance penalty
+- Barlow Twins: cross-correlation redundancy
+- Kornblith et al.: linear CKA
 
 ## Citation
 

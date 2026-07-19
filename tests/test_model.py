@@ -180,9 +180,21 @@ class TestCollapsePrevention:
         from src.models.collapse import VarianceRegularization
         assert VarianceRegularization(margin=1.0)(torch.randn(32, 64) * 10.0).item() == pytest.approx(0.0, abs=1e-3)
 
+    def test_variance_n1(self):
+        """N=1 should not produce NaN (var with df=0)."""
+        from src.models.collapse import VarianceRegularization
+        loss = VarianceRegularization()(torch.randn(1, 32))
+        assert torch.isfinite(loss) and loss.item() == 0.0
+
     def test_covariance(self):
         from src.models.collapse import CovarianceRegularization
         assert CovarianceRegularization()(torch.randn(64, 32)).item() >= 0
+
+    def test_covariance_n1(self):
+        """N=1 should not produce NaN (divide by N-1=0)."""
+        from src.models.collapse import CovarianceRegularization
+        loss = CovarianceRegularization()(torch.randn(1, 32))
+        assert torch.isfinite(loss)
 
     def test_centering(self):
         from src.models.collapse import TargetCentering
@@ -191,26 +203,17 @@ class TestCollapsePrevention:
         assert centered.shape == (4, 8, 32) and tc.center.norm().item() > 0
 
     def test_effective_rank_positive(self):
-        """BUG FIX: effective_rank must be > 0 for random data.
-        Previous bug: -x.exp() = -(x.exp()) due to operator precedence."""
         from src.models.collapse import CollapseDiagnostics
         m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
         assert m['effective_rank_online'] > 0
         assert m['effective_rank_target'] > 0
 
     def test_hidden_state_rank_nextlat_pattern(self):
-        """Test rank metrics match NextLat model_base.compute_hidden_state_rank pattern:
-        - effective_rank = exp(-sum(p * log(p))) where p = S/S.sum()
-        - condition_number = S[0] / S[-1]
-        - numerical_rank = matrix_rank(atol=1e-3, rtol=1e-3)
-        - rank_utilization = numerical_rank / max_possible_rank
-        """
         from src.models.collapse import CollapseDiagnostics
         diag = CollapseDiagnostics()
         h = torch.randn(4, 16, 32)
         metrics = diag.compute(h, h)
 
-        # NextLat pattern: batch-level metrics
         flat = h.reshape(-1, 32)
         S = torch.linalg.svdvals(flat)
         S_norm = S / S.sum()
@@ -224,17 +227,52 @@ class TestCollapsePrevention:
         assert metrics['numerical_rank_online'] == expected_num_rank
 
     def test_collapse_detection_zero_input(self):
-        """All-zero input should show collapse (low effective rank)."""
         from src.models.collapse import CollapseDiagnostics
         m = CollapseDiagnostics().compute(torch.zeros(4, 16, 32), torch.zeros(4, 16, 32))
-        # Zero input → rank 0 → effective_rank near 0
         assert m['effective_rank_online'] <= 1.0
 
     def test_participation_ratio(self):
-        """Participation ratio: (sum S)^2 / sum(S^2). Random data should have PR > 1."""
         from src.models.collapse import CollapseDiagnostics
         m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
         assert m['participation_ratio_online'] > 1.0
+
+    def test_collapsed_dim_ratio_random(self):
+        """Random data should have low collapsed dim ratio."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
+        assert m['collapsed_dim_ratio_online'] < 0.5
+
+    def test_collapsed_dim_ratio_constant(self):
+        """Constant input should have collapsed dim ratio near 1.0."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.ones(4, 16, 32), torch.ones(4, 16, 32))
+        assert m['collapsed_dim_ratio_online'] > 0.9
+
+    def test_cross_corr_redundancy(self):
+        """Barlow Twins cross-correlation redundancy metric."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
+        assert 'cross_corr_redundancy' in m
+        assert m['cross_corr_redundancy'] >= 0.0
+
+    def test_cka_identical(self):
+        """CKA of identical representations should be near 1.0."""
+        from src.models.collapse import CollapseDiagnostics
+        h = torch.randn(4, 16, 32)
+        m = CollapseDiagnostics().compute(h, h)
+        assert m['cka_linear'] > 0.95
+
+    def test_cka_independent(self):
+        """CKA of independent representations should be < 1.0."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
+        assert m['cka_linear'] < 0.95
+
+    def test_rank_utilization(self):
+        """Rank utilization from NextLat."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
+        assert 0 < m['rank_utilization_online'] <= 1.0
 
 
 # ═══════════════════════════════════════════════════════════════════
