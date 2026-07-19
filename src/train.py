@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Main training loop for Kaggle (single GPU)
 # Training loop patterns from I-JEPA (Assran et al., CVPR 2023):
 #   - momentum_scheduler generator (I-JEPA train.py line ~152)

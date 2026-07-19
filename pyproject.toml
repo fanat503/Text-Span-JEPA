@@ -7,7 +7,7 @@ name = "text-span-jepa"
 version = "0.2.0"
 description = "Text-Span JEPA: Latent Predictive Learning for Language Representations"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
 authors = [{name = "Text-Span JEPA Authors"}]
 keywords = ["jepa", "self-supervised", "nlp", "representation-learning"]

@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Span masking: contiguous block masking for text sequences
 # Adapted from I-JEPA multiblock masking + SpanBERT span selection
 

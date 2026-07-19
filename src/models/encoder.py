@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Bidirectional Transformer encoder (online + target shared architecture)
 # Architecture adapted from I-JEPA (Assran et al., CVPR 2023) for 1D text
 # Init patterns: trunc_normal_ + depth-wise rescaling from I-JEPA/CaiT

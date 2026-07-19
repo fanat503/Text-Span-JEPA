@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Main JEPA model: glues encoder, predictor, decoder, collapse prevention
 # Training loop patterns from I-JEPA (Assran et al., CVPR 2023)
 # Target centering + layer norm from data2vec (Baevski et al., ICML 2022)
@@ -130,6 +131,17 @@ class TextSpanJEPA(nn.Module):
                                      self.target_encoder.parameters()):
             param_k.data.mul_(tau).add_((1. - tau) * param_q.detach().data)
 
+    @torch.no_grad()
+    def snapshot_target_encoder(self):
+        """Save a snapshot of current target encoder output for stability metric.
+
+        Called before EMA update so we can measure how much the target moved.
+        Returns the target hidden states for the last batch processed.
+        """
+        if hasattr(self, '_prev_target_h') and self._prev_target_h is not None:
+            return self._prev_target_h
+        return None
+
     def _future_loss_weight(self, current_step):
         """Fix #2: Warmup future loss from 0 to lambda_future.
 
@@ -159,6 +171,8 @@ class TextSpanJEPA(nn.Module):
         # I-JEPA: layer_norm(h, (h.size(-1),))  on target
         # data2vec: centering before layer_norm
         with torch.no_grad():
+            # Snapshot before computing new target (for stability metric)
+            self._prev_target_h = getattr(self, '_prev_target_h', None)
             h_target, _ = self.target_encoder(original_input_ids)
             h_target = self.target_centering(h_target)
             h_target = F.layer_norm(h_target, (h_target.size(-1),))
@@ -236,9 +250,13 @@ class TextSpanJEPA(nn.Module):
         for d, l in future_losses.items():
             loss_dict[f'loss_future_d{d}'] = l.item()
 
-        diag_dict = self.diagnostics.compute(h_online.detach(), h_target.detach())
+        diag_dict = self.diagnostics.compute(h_online.detach(), h_target.detach(),
+                                              prev_target_h=self._prev_target_h)
         diag_dict['target_center_norm'] = self.target_centering.center.norm().item()
         diag_dict['mask_fraction'] = mask_positions.float().mean().item()
+
+        # Update prev_target_h snapshot for next step's stability metric
+        self._prev_target_h = h_target.detach().clone()
 
         return total_loss, loss_dict, diag_dict
 

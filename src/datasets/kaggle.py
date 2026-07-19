@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Kaggle dataset loading: WikiText-103 / BookCorpus / C4 small
 # Works on Kaggle notebooks with GPU T4/P100
 

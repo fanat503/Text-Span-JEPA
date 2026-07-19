@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Test suite — patterns from NextLat (Microsoft Research) + I-JEPA (Meta)
 # Key test patterns from NextLat model_base.py:
 #   - compute_hidden_state_rank: effective_rank, numerical_rank, condition_number,
@@ -273,6 +274,132 @@ class TestCollapsePrevention:
         from src.models.collapse import CollapseDiagnostics
         m = CollapseDiagnostics().compute(torch.randn(4, 16, 32), torch.randn(4, 16, 32))
         assert 0 < m['rank_utilization_online'] <= 1.0
+
+    # --- New metrics from top JEPA papers ---
+
+    def test_singular_value_entropy(self):
+        """I-JEPA: normalized entropy of singular values. Random data > 0, constant = 0."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert 0 < m['sv_entropy_online'] <= 1.0
+        assert 0 < m['sv_entropy_target'] <= 1.0
+
+    def test_singular_value_entropy_collapse(self):
+        """I-JEPA: collapsed representations have low sv_entropy."""
+        from src.models.collapse import CollapseDiagnostics
+        h = torch.randn(4, 16, 32)
+        m = CollapseDiagnostics().compute(h, h)
+        # Identical online/target should have same entropy
+        assert abs(m['sv_entropy_online'] - m['sv_entropy_target']) < 0.01
+
+    def test_svd_sharpness(self):
+        """C-JEPA/BYOL: spectral sharpness in [0,1]. Random < 1, rank-1 → 1."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert 0 < m['svd_sharpness_online'] < 1.0  # random = not sharp
+
+    def test_svd_sharpness_rank1(self):
+        """C-JEPA/BYOL: rank-1 matrix should have sharpness near 1."""
+        from src.models.collapse import CollapseDiagnostics
+        v = torch.randn(1, 32)
+        h = v.expand(64, 32)  # rank-1: all rows identical
+        sharpness = CollapseDiagnostics._svd_sharpness(h.unsqueeze(0))
+        assert sharpness > 0.95
+
+    def test_alpha_norm(self):
+        """LeCun 2022: power-law exponent of singular value spectrum."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert m['alpha_norm_online'] >= 0.0
+        assert m['alpha_norm_target'] >= 0.0
+
+    def test_alpha_norm_zero_input(self):
+        """LeCun 2022: zero input → alpha_norm = 0 (no spectrum to fit)."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.zeros(4, 16, 32), torch.zeros(4, 16, 32))
+        assert m['alpha_norm_online'] == 0.0
+
+    def test_intrinsic_dim(self):
+        """Ansuini et al. 2019: intrinsic dimensionality estimate."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert m['intrinsic_dim_online'] >= 0.0
+        assert m['intrinsic_dim_target'] >= 0.0
+
+    def test_intrinsic_dim_collapsed_lower(self):
+        """Ansuini et al.: collapsed data should have lower intrinsic dim than random."""
+        from src.models.collapse import CollapseDiagnostics
+        random_h = torch.randn(16, 32, 32)
+        # Collapsed: all rows near the same direction
+        v = torch.randn(1, 32)
+        collapsed_h = v.expand(512, 32) + torch.randn(512, 32) * 0.01
+        dim_random = CollapseDiagnostics._intrinsic_dim_score(random_h)
+        dim_collapsed = CollapseDiagnostics._intrinsic_dim_score(collapsed_h)
+        assert dim_collapsed < dim_random
+
+    def test_mean_pairwise_cosine(self):
+        """DINOv2: intra-batch cosine similarity."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert -1 <= m['mean_pairwise_cosine_online'] <= 1
+
+    def test_mean_pairwise_cosine_collapsed(self):
+        """DINOv2: collapsed representations have high pairwise cosine."""
+        from src.models.collapse import CollapseDiagnostics
+        v = torch.randn(1, 32)
+        collapsed = v.expand(128, 32) + torch.randn(128, 32) * 0.01
+        cos = CollapseDiagnostics._mean_pairwise_cosine(collapsed)
+        assert cos > 0.9  # Nearly identical → high cosine
+
+    def test_representation_stability(self):
+        """I-JEPA: cosine similarity between consecutive target updates."""
+        from src.models.collapse import CollapseDiagnostics
+        h1 = torch.randn(4, 16, 32)
+        h2 = h1 + torch.randn(4, 16, 32) * 0.01  # very similar
+        stability = CollapseDiagnostics._representation_stability(h1, h2)
+        assert stability > 0.9  # Should be high for similar targets
+
+    def test_representation_stability_in_compute(self):
+        """I-JEPA: representation_stability should appear when prev_target_h is passed."""
+        from src.models.collapse import CollapseDiagnostics
+        h1 = torch.randn(4, 16, 32)
+        h2 = h1 + torch.randn(4, 16, 32) * 0.01
+        m = CollapseDiagnostics().compute(h1, h2, prev_target_h=h1)
+        assert 'representation_stability' in m
+        assert m['representation_stability'] > 0.9
+
+    def test_cka_rbf(self):
+        """Kornblith et al.: RBF kernel CKA."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert 'cka_rbf' in m
+        assert 0 <= m['cka_rbf'] <= 1.0
+
+    def test_cka_rbf_identical(self):
+        """Kornblith et al.: RBF CKA of identical representations ≈ 1."""
+        from src.models.collapse import CollapseDiagnostics
+        h = torch.randn(8, 16, 32)
+        m = CollapseDiagnostics().compute(h, h)
+        assert m['cka_rbf'] > 0.9
+
+    def test_all_new_metrics_no_nan(self):
+        """All new metrics should return finite values for normal input."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        for key in ['sv_entropy_online', 'svd_sharpness_online', 'alpha_norm_online',
+                     'intrinsic_dim_online', 'mean_pairwise_cosine_online',
+                     'cross_corr_redundancy', 'cka_linear', 'cka_rbf']:
+            assert key in m, f"Missing metric: {key}"
+            assert math.isfinite(m[key]), f"Non-finite value for {key}: {m[key]}"
+
+    def test_all_new_metrics_zero_input(self):
+        """All new metrics should handle zero input (NextLat exception pattern)."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.zeros(4, 16, 32), torch.zeros(4, 16, 32))
+        for key in ['sv_entropy_online', 'svd_sharpness_online', 'alpha_norm_online',
+                     'intrinsic_dim_online', 'mean_pairwise_cosine_online']:
+            assert key in m, f"Missing metric: {key}"
+            assert math.isfinite(m[key]), f"Non-finite value for {key}: {m[key]}"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -632,6 +759,12 @@ class TestEvalProbes:
         assert m['numerical_rank'] > 0
         assert 0 < m['rank_utilization'] <= 1.0
         assert m['coherence'] >= 0
+        # New metrics
+        assert 'sv_entropy' in m and 0 < m['sv_entropy'] <= 1.0
+        assert 'svd_sharpness' in m and 0 < m['svd_sharpness'] < 1.0
+        assert 'alpha_norm' in m and m['alpha_norm'] >= 0
+        assert 'intrinsic_dim' in m and m['intrinsic_dim'] >= 0
+        assert 'mean_pairwise_cosine' in m and -1 <= m['mean_pairwise_cosine'] <= 1
 
     def test_geometry_metrics_zero_input(self):
         """GeometryMetrics should handle zero input without NaN/crash (NextLat pattern)."""
@@ -641,6 +774,10 @@ class TestEvalProbes:
         assert m['numerical_rank'] == 0.0
         assert m['condition_number'] == float('inf')
         assert m['rank_utilization'] == 0.0
+        # New metrics should also handle zero input
+        assert math.isfinite(m.get('sv_entropy', 0))
+        assert math.isfinite(m.get('svd_sharpness', 0))
+        assert math.isfinite(m.get('alpha_norm', 0))
 
     def test_geometry_metrics_reuses_collapse_diagnostics(self):
         """GeometryMetrics should reuse CollapseDiagnostics (no code duplication)."""

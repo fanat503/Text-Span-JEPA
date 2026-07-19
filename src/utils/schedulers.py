@@ -1,4 +1,5 @@
-# Copyright (c) Text-Span JEPA Authors
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
 # Schedulers: LR, weight decay, EMA tau — from I-JEPA (Assran et al., CVPR 2023)
 # EMA tau schedule: momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(total_steps))
 # This is the EXACT formula from I-JEPA train.py line ~152
