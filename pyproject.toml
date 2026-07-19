@@ -27,3 +27,7 @@ addopts = "-v --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]

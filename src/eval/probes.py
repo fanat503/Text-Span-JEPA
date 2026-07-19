@@ -7,19 +7,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from src.models.collapse import CollapseDiagnostics
+
 
 class LinearProbe:
     """Linear probe: train a linear classifier on frozen representations."""
 
     def __init__(self, embed_dim=768, num_classes=2, lr=1e-3, max_epochs=100):
-        self.classifier = nn.Linear(embed_dim, num_classes)
+        self.embed_dim = embed_dim
+        self.num_classes = num_classes
         self.lr = lr
         self.max_epochs = max_epochs
 
     def evaluate(self, model, dataset, device='cuda'):
+        """Train linear classifier on frozen encoder and return accuracy."""
         model.eval()
-        self.classifier = self.classifier.to(device)
-        optimizer = torch.optim.Adam(self.classifier.parameters(), lr=self.lr)
+        classifier = nn.Linear(self.embed_dim, self.num_classes).to(device)
+        optimizer = torch.optim.Adam(classifier.parameters(), lr=self.lr)
         loader = DataLoader(dataset, batch_size=64, shuffle=True)
 
         for epoch in range(self.max_epochs):
@@ -29,13 +33,27 @@ class LinearProbe:
                 with torch.no_grad():
                     h, _ = model.encoder(input_ids)
                     h_pooled = h.mean(dim=1)
-                logits = self.classifier(h_pooled)
+                logits = classifier(h_pooled)
                 loss = F.cross_entropy(logits, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-        return {'accuracy': 0.0}
+        # Evaluate final accuracy on the same data (for quick sanity check)
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch in loader:
+                input_ids = batch[0].to(device)
+                labels = batch[1].to(device)
+                h, _ = model.encoder(input_ids)
+                h_pooled = h.mean(dim=1)
+                logits = classifier(h_pooled)
+                correct += (logits.argmax(dim=-1) == labels).sum().item()
+                total += labels.size(0)
+
+        accuracy = correct / max(total, 1)
+        return {'accuracy': accuracy}
 
 
 class FutureTokenProbe:
@@ -85,35 +103,42 @@ class FutureTokenProbe:
 
 
 class GeometryMetrics:
-    """Representation geometry metrics from I-JEPA / NextLat / C-JEPA."""
+    """Representation geometry metrics — reuses CollapseDiagnostics.
+
+    From I-JEPA / NextLat / C-JEPA:
+    - effective_rank (Shannon entropy of singular values)
+    - participation_ratio (effective dimensionality)
+    - condition_number, numerical_rank, rank_utilization
+    - coherence
+
+    NextLat pattern: exception handling returns zeros/infs (not crashes).
+    """
+
+    _diag = CollapseDiagnostics()
 
     @staticmethod
     @torch.no_grad()
     def compute(representations):
         if representations.dim() == 3:
             B, T, D = representations.shape
-            representations = representations.reshape(B * T, D)
-        N, D = representations.shape
+            N = B * T
+        else:
+            N, D = representations.shape
+
         metrics = {}
-
         try:
-            S = torch.linalg.svdvals(representations)
-            S_norm = S / S.sum()
-            S_norm = torch.clamp(S_norm, min=1e-12)
-            metrics['effective_rank'] = -torch.sum(S_norm * torch.log(S_norm)).exp().item()
-            metrics['participation_ratio'] = (S.sum() ** 2 / (S ** 2).sum()).item()
-            metrics['condition_number'] = (S[0] / S[-1]).item() if S[-1] > 0 else float('inf')
-            metrics['numerical_rank'] = torch.linalg.matrix_rank(
-                representations, atol=1e-3, rtol=1e-3
-            ).item()
-            metrics['rank_utilization'] = metrics['numerical_rank'] / min(N, D)
-
-            centered = representations - representations.mean(dim=0)
-            cov = (centered.T @ centered) / (N - 1)
-            diag = torch.diag(torch.diag(cov))
-            off_diag = cov - diag
-            metrics['coherence'] = off_diag.abs().max().item() if D > 1 else 0.0
+            # Reuse CollapseDiagnostics methods (with NaN-guards)
+            metrics['effective_rank'] = GeometryMetrics._diag._effective_rank(representations)
+            metrics['participation_ratio'] = GeometryMetrics._diag._participation_ratio(representations)
+            metrics['condition_number'] = GeometryMetrics._diag._condition_number(representations)
+            metrics['numerical_rank'] = GeometryMetrics._diag._numerical_rank(representations)
+            metrics['rank_utilization'] = metrics['numerical_rank'] / min(N, D) if min(N, D) > 0 else 0.0
+            metrics['coherence'] = GeometryMetrics._diag._coherence(representations)
         except Exception as e:
             metrics['error'] = str(e)
+            for key in ['effective_rank', 'participation_ratio', 'numerical_rank',
+                        'rank_utilization', 'coherence']:
+                metrics.setdefault(key, 0.0)
+            metrics.setdefault('condition_number', float('inf'))
 
         return metrics

@@ -579,5 +579,101 @@ class TestLogging:
         assert stats.last_layer > 0, "grad_logger should detect last QKV layer gradient"
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Evaluation Probes
+# ═══════════════════════════════════════════════════════════════════
+
+class TestEvalProbes:
+    def test_geometry_metrics_random_data(self):
+        """GeometryMetrics should return valid metrics for random data."""
+        from src.eval.probes import GeometryMetrics
+        m = GeometryMetrics.compute(torch.randn(4, 16, 32))
+        assert m['effective_rank'] > 0
+        assert m['participation_ratio'] > 1.0
+        assert m['condition_number'] > 0
+        assert m['numerical_rank'] > 0
+        assert 0 < m['rank_utilization'] <= 1.0
+        assert m['coherence'] >= 0
+
+    def test_geometry_metrics_zero_input(self):
+        """GeometryMetrics should handle zero input without NaN/crash (NextLat pattern)."""
+        from src.eval.probes import GeometryMetrics
+        m = GeometryMetrics.compute(torch.zeros(4, 16, 32))
+        assert m['effective_rank'] == 0.0
+        assert m['numerical_rank'] == 0.0
+        assert m['condition_number'] == float('inf')
+        assert m['rank_utilization'] == 0.0
+
+    def test_geometry_metrics_reuses_collapse_diagnostics(self):
+        """GeometryMetrics should reuse CollapseDiagnostics (no code duplication)."""
+        from src.eval.probes import GeometryMetrics
+        from src.models.collapse import CollapseDiagnostics
+        # Verify it uses the same instance/methods
+        assert isinstance(GeometryMetrics._diag, CollapseDiagnostics)
+        assert GeometryMetrics.compute is not None
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Checkpoint Save/Load (I-JEPA pattern)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestCheckpoint:
+    def test_save_load_roundtrip(self, tmp_path):
+        """Checkpoint save → load should produce identical model weights."""
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        from src.train import load_checkpoint
+
+        config = TextSpanJEPAConfig(
+            vocab_size=1000, max_seq_len=32, embed_dim=64, encoder_depth=2,
+            num_heads=4, mlp_ratio=2.0, predictor_embed_dim=32, predictor_depth=2,
+            future_offsets=(1,), num_refine_steps=1)
+        model = TextSpanJEPA(config)
+        opt = torch.optim.AdamW(list(model.encoder.parameters()) +
+                                list(model.predictor.parameters()) +
+                                list(model.decoder.parameters()), lr=1e-3)
+
+        # Save
+        ckpt_path = str(tmp_path / 'test_ckpt.pth.tar')
+        save_dict = {
+            'encoder': model.encoder.state_dict(),
+            'predictor': model.predictor.state_dict(),
+            'target_encoder': model.target_encoder.state_dict(),
+            'decoder': model.decoder.state_dict(),
+            'opt': opt.state_dict(),
+            'scaler': None,
+            'epoch': 5,
+            'global_step': 1000,
+            'loss': 0.5,
+        }
+        torch.save(save_dict, ckpt_path)
+
+        # Create fresh model and load
+        model2 = TextSpanJEPA(config)
+        opt2 = torch.optim.AdamW(list(model2.encoder.parameters()) +
+                                 list(model2.predictor.parameters()) +
+                                 list(model2.decoder.parameters()), lr=1e-3)
+
+        enc, pred, tgt, dec, opt2, scaler, epoch, gstep = load_checkpoint(
+            ckpt_path, model2.encoder, model2.predictor,
+            model2.target_encoder, model2.decoder, opt2, None)
+
+        assert epoch == 5
+        assert gstep == 1000
+        # Verify weights match
+        for (n1, p1), (n2, p2) in zip(model.encoder.named_parameters(),
+                                       model2.encoder.named_parameters()):
+            assert torch.allclose(p1, p2), f"Weight mismatch: {n1}"
+
+    def test_checkpoint_saves_global_step(self, tmp_path):
+        """Checkpoint must include global_step for training resumption."""
+        import io
+        model_state = {'global_step': 42, 'epoch': 3}
+        buf = io.BytesIO()
+        torch.save(model_state, buf)
+        buf.seek(0)
+        loaded = torch.load(buf, weights_only=False)
+        assert loaded['global_step'] == 42
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

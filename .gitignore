@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.egg
+.eggs/
 dist/
 build/
 
@@ -28,7 +30,16 @@ output_debug/
 .cache/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 
 # Data
 data/
 *.tar.gz
+
+# Experiment tracking
+wandb/
+mlruns/
+lightning_logs/
+
+# Jupyter
+.ipynb_checkpoints/

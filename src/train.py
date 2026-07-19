@@ -6,7 +6,7 @@
 #   - loss_fn: smooth_l1_loss (I-JEPA train.py loss_fn)
 #   - target: layer_norm(h, (h.size(-1),))  (I-JEPA train.py forward_target)
 #   - AMP with GradScaler (I-JEPA train.py train_step)
-#   - checkpoint saving pattern (I-JEPA train.py save_checkpoint)
+#   - checkpoint saving/loading pattern (I-JEPA train.py save_checkpoint)
 #   - AverageMeter, CSVLogger (I-JEPA src/utils/logging.py)
 
 import os
@@ -26,6 +26,44 @@ from src.utils.logging import CSVLogger, AverageMeter, grad_logger
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger()
+
+
+def load_checkpoint(r_path, encoder, predictor, target_encoder, decoder, opt, scaler):
+    """Load checkpoint — I-JEPA helper.py load_checkpoint pattern."""
+    try:
+        checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
+        epoch = checkpoint.get('epoch', 0)
+        global_step = checkpoint.get('global_step', 0)
+
+        pretrained_dict = checkpoint['encoder']
+        msg = encoder.load_state_dict(pretrained_dict)
+        logger.info(f'Loaded encoder from epoch {epoch}: {msg}')
+
+        pretrained_dict = checkpoint['predictor']
+        msg = predictor.load_state_dict(pretrained_dict)
+        logger.info(f'Loaded predictor from epoch {epoch}: {msg}')
+
+        pretrained_dict = checkpoint['target_encoder']
+        msg = target_encoder.load_state_dict(pretrained_dict)
+        logger.info(f'Loaded target_encoder from epoch {epoch}: {msg}')
+
+        pretrained_dict = checkpoint['decoder']
+        msg = decoder.load_state_dict(pretrained_dict)
+        logger.info(f'Loaded decoder from epoch {epoch}: {msg}')
+
+        opt.load_state_dict(checkpoint['opt'])
+        if scaler is not None and checkpoint.get('scaler') is not None:
+            scaler.load_state_dict(checkpoint['scaler'])
+        logger.info(f'Loaded optimizers from epoch {epoch}')
+        logger.info(f'Read-path: {r_path}')
+        del checkpoint
+
+    except Exception as e:
+        logger.info(f'Encountered exception when loading checkpoint: {e}')
+        epoch = 0
+        global_step = 0
+
+    return encoder, predictor, target_encoder, decoder, opt, scaler, epoch, global_step
 
 
 def main(args):
@@ -132,11 +170,31 @@ def main(args):
     with open(dump_path, 'w') as f:
         yaml.dump(args, f)
 
-    # ---- Training Loop — I-JEPA pattern ----
+    # ---- Resume from checkpoint if available ----
+    start_epoch = 0
     global_step = 0
+    r_file = args.get('meta', {}).get('read_checkpoint', None)
+    load_model = args.get('meta', {}).get('load_checkpoint', False)
+    latest_path = os.path.join(log_dir, 'checkpoint-latest.pth.tar')
+    if load_model:
+        load_path = os.path.join(log_dir, r_file) if r_file else latest_path
+        if os.path.exists(load_path):
+            model.encoder, model.predictor, model.target_encoder, model.decoder, \
+                optimizer, scaler, start_epoch, global_step = load_checkpoint(
+                    load_path, model.encoder, model.predictor,
+                    model.target_encoder, model.decoder, optimizer, scaler)
+            # Advance schedulers to correct step
+            for _ in range(global_step):
+                scheduler.step()
+                wd_scheduler.step()
+                ema_scheduler.step()
+                mask_collator.step()
+            logger.info(f'Resumed from epoch {start_epoch}, step {global_step}')
+
+    # ---- Training Loop — I-JEPA pattern ----
     logger.info(f'Starting training: {num_epochs} epochs, {total_steps} total steps')
 
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         loss_meter = AverageMeter()
 
         for itr, batch in enumerate(dataloader):
@@ -213,9 +271,8 @@ def main(args):
 
         logger.info('avg. loss %.3f' % loss_meter.avg)
 
-        # I-JEPA checkpoint pattern
+        # I-JEPA checkpoint pattern — save all state for resumption
         ckpt_path = os.path.join(log_dir, f'checkpoint-ep{epoch + 1}.pth.tar')
-        latest_path = os.path.join(log_dir, 'checkpoint-latest.pth.tar')
         save_dict = {
             'encoder': model.encoder.state_dict(),
             'predictor': model.predictor.state_dict(),
@@ -224,6 +281,7 @@ def main(args):
             'opt': optimizer.state_dict(),
             'scaler': scaler.state_dict() if scaler is not None else None,
             'epoch': epoch + 1,
+            'global_step': global_step,
             'loss': loss_meter.avg,
         }
         torch.save(save_dict, latest_path)

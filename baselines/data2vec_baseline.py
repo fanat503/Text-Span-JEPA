@@ -58,8 +58,12 @@ class Data2VecTextBaseline(nn.Module):
         super().__init__()
         self.average_top_k_layers = average_top_k_layers
         self.loss_beta = loss_beta
-        # data2vec: loss_scale=None → scale by 1/sqrt(dim); else multiply by constant
-        self.loss_scale = loss_scale or (-1 if loss_scale is None else loss_scale)
+        # data2vec: loss_scale=None → scale by 1/sqrt(dim); explicit value → multiply by constant
+        # loss_scale <= 0 means "use 1/sqrt(dim) scaling" (data2vec default)
+        if loss_scale is None:
+            self.loss_scale = -1  # sentinel: use 1/sqrt(dim)
+        else:
+            self.loss_scale = loss_scale
         self.ema_decay = ema_decay
         self.ema_end_decay = ema_end_decay
         self.ema_anneal_end_step = ema_anneal_end_step

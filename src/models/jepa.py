@@ -169,17 +169,25 @@ class TextSpanJEPA(nn.Module):
         )
 
         # === Span loss — only on valid (non-padded) masked positions ===
+        # Fix #3: reuse valid_mask from predictor's _gather_masked for alignment
         B, D = h_online.size(0), h_online.size(-1)
-        target_masked, _, target_valid = TextSpanJEPApredictor._gather_masked(
-            h_target.detach(), mask_positions
-        )
         if valid_mask.any():
-            # Align valid_mask dimensions between prediction and target
-            min_cols = min(valid_mask.size(1), target_valid.size(1))
-            loss_span = F.smooth_l1_loss(
-                span_preds[:, :min_cols][valid_mask[:, :min_cols]],
-                target_masked[:, :min_cols][target_valid[:, :min_cols]]
+            # Gather target at same masked positions as predictions
+            target_gathered, _, target_valid = TextSpanJEPApredictor._gather_masked(
+                h_target.detach(), mask_positions
             )
+            # Both valid_masks should be identical (same mask_positions),
+            # but use min_cols as safety guard for shape alignment
+            min_cols = min(valid_mask.size(1), target_valid.size(1))
+            # Combine valid masks: position must be valid in BOTH
+            combined_valid = valid_mask[:, :min_cols] & target_valid[:, :min_cols]
+            if combined_valid.any():
+                loss_span = F.smooth_l1_loss(
+                    span_preds[:, :min_cols][combined_valid],
+                    target_gathered[:, :min_cols][combined_valid]
+                )
+            else:
+                loss_span = torch.tensor(0.0, device=h_online.device)
         else:
             loss_span = torch.tensor(0.0, device=h_online.device)
 
