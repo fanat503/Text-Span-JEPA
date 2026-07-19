@@ -295,7 +295,7 @@ def main(args):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fname', type=str, default='configs/base.yaml')
+    parser.add_argument('--fname', type=str, default='configs/base-200m.yaml')
     args = parser.parse_args()
     with open(args.fname, 'r') as f:
         config = yaml.safe_load(f)

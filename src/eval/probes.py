@@ -150,6 +150,12 @@ class GeometryMetrics:
             flat = representations.reshape(-1, representations.size(-1))
             metrics['mean_pairwise_cosine'] = d._mean_pairwise_cosine(flat)
 
+            # Wang & Isola (ICLR 2022)
+            metrics['uniformity'] = d._uniformity(flat)
+
+            # DINO
+            metrics['cov_trace'] = d._feature_covariance_trace(representations)
+
         except Exception as e:
             metrics['error'] = str(e)
             for key in ['effective_rank', 'participation_ratio', 'numerical_rank',

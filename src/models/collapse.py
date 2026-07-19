@@ -224,6 +224,14 @@ class CollapseDiagnostics(nn.Module):
         # --- Centered kernel alignment — RBF kernel variant ---
         metrics['cka_rbf'] = self._cka_rbf(online_flat, target_flat)
 
+        # --- Uniformity on hypersphere (Wang & Isola, ICLR 2022) ---
+        metrics['uniformity_online'] = self._uniformity(online_flat)
+        metrics['uniformity_target'] = self._uniformity(target_flat)
+
+        # --- Feature covariance trace (DINO) ---
+        metrics['cov_trace_online'] = self._feature_covariance_trace(online_h)
+        metrics['cov_trace_target'] = self._feature_covariance_trace(target_h)
+
         return metrics
 
     # ═══════════════════════════════════════════════════════════════
@@ -665,3 +673,75 @@ class CollapseDiagnostics(nn.Module):
         """RBF (Gaussian) kernel matrix."""
         dists = torch.cdist(x, x, p=2)
         return torch.exp(-0.5 * dists ** 2 / (sigma ** 2))
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Wang & Isola (ICLR 2022) — uniformity on hypersphere
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _uniformity(flat, t=2.0):
+        """Uniformity of representations on the unit hypersphere.
+
+        Wang & Isola, "Understanding Contrastive Representation Learning
+        through Alignment and Uniformity on the Hypersphere", ICLR 2022.
+
+        Measures how uniformly distributed the representations are on the
+        unit sphere. Lower = more uniform = better. High = collapsed/clustering.
+        Computed as log mean of exp(-t * ||z_i - z_j||^2) over pairs.
+
+        Healthy: moderate uniformity. Collapse: very low (all same point)
+        or very high (clustered in tight groups).
+        """
+        try:
+            N = flat.size(0)
+            if N < 2:
+                return 0.0
+            # Subsample for efficiency
+            if N > 256:
+                idx = torch.randperm(N, device=flat.device)[:256]
+                flat = flat[idx]
+                N = 256
+            # Normalize to unit sphere
+            flat = F.normalize(flat, dim=-1)
+            # Pairwise squared distances
+            dist_sq = torch.cdist(flat, flat, p=2) ** 2
+            # Mask diagonal (self-distances)
+            mask = ~torch.eye(N, dtype=torch.bool, device=flat.device)
+            # log mean of exp(-t * d^2)
+            pair_dists = dist_sq[mask]
+            val = (torch.logsumexp(-t * pair_dists, dim=0) - math.log(pair_dists.numel())).item()
+            if not math.isfinite(val):
+                return 0.0
+            return val
+        except Exception:
+            return 0.0
+
+    # ═══════════════════════════════════════════════════════════════
+    #  DINO — feature covariance trace
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _feature_covariance_trace(x):
+        """Trace of the feature covariance matrix.
+
+        DINO (Caron et al., 2021): the trace of the covariance matrix
+        is a simple summary of total variance across dimensions.
+        Near-zero trace → collapse. High trace → active dimensions.
+
+        Normalized by dimension for comparability across model sizes.
+        """
+        try:
+            flat = x.reshape(-1, x.size(-1))
+            N, D = flat.shape
+            if N <= 1:
+                return 0.0
+            centered = flat - flat.mean(dim=0)
+            cov = (centered.T @ centered) / max(N - 1, 1)
+            trace = torch.trace(cov).item()
+            # Normalize by dimension
+            val = trace / D
+            if not math.isfinite(val):
+                return 0.0
+            return max(val, 0.0)
+        except Exception:
+            return 0.0

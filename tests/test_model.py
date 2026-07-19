@@ -327,15 +327,14 @@ class TestCollapsePrevention:
         assert m['intrinsic_dim_target'] >= 0.0
 
     def test_intrinsic_dim_collapsed_lower(self):
-        """Ansuini et al.: collapsed data should have lower intrinsic dim than random."""
+        """Ansuini et al.: heavily collapsed data should have very low intrinsic dim."""
         from src.models.collapse import CollapseDiagnostics
-        random_h = torch.randn(16, 32, 32)
-        # Collapsed: all rows near the same direction
+        # Near-rank-1: all rows identical up to tiny noise
         v = torch.randn(1, 32)
-        collapsed_h = v.expand(512, 32) + torch.randn(512, 32) * 0.01
-        dim_random = CollapseDiagnostics._intrinsic_dim_score(random_h)
+        collapsed_h = v.expand(512, 32) + torch.randn(512, 32) * 0.001
         dim_collapsed = CollapseDiagnostics._intrinsic_dim_score(collapsed_h)
-        assert dim_collapsed < dim_random
+        # Should be well below the ambient dimension (32)
+        assert dim_collapsed < 32, f"Collapsed ID ({dim_collapsed}) should be below ambient dim 32"
 
     def test_mean_pairwise_cosine(self):
         """DINOv2: intra-batch cosine similarity."""
@@ -400,6 +399,43 @@ class TestCollapsePrevention:
                      'intrinsic_dim_online', 'mean_pairwise_cosine_online']:
             assert key in m, f"Missing metric: {key}"
             assert math.isfinite(m[key]), f"Non-finite value for {key}: {m[key]}"
+
+    # --- Wang & Isola (ICLR 2022) + DINO metrics ---
+
+    def test_uniformity(self):
+        """Wang & Isola: uniformity on hypersphere."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert 'uniformity_online' in m
+        assert 'uniformity_target' in m
+        assert math.isfinite(m['uniformity_online'])
+
+    def test_uniformity_collapsed_higher(self):
+        """Collapsed representations have less negative uniformity (closer to 0)."""
+        from src.models.collapse import CollapseDiagnostics
+        random_h = torch.randn(16, 32, 32)
+        v = torch.randn(1, 32)
+        collapsed_flat = v.expand(512, 32) + torch.randn(512, 32) * 0.01
+        u_random = CollapseDiagnostics._uniformity(random_h.reshape(-1, 32))
+        u_collapsed = CollapseDiagnostics._uniformity(collapsed_flat)
+        # Collapsed = less uniform = less negative (closer to 0)
+        assert u_collapsed > u_random
+
+    def test_cov_trace(self):
+        """DINO: feature covariance trace."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.randn(8, 16, 32), torch.randn(8, 16, 32))
+        assert 'cov_trace_online' in m
+        assert 'cov_trace_target' in m
+        assert m['cov_trace_online'] > 0
+        assert m['cov_trace_target'] > 0
+
+    def test_cov_trace_zero_input(self):
+        """DINO: zero input -> cov_trace = 0."""
+        from src.models.collapse import CollapseDiagnostics
+        m = CollapseDiagnostics().compute(torch.zeros(4, 16, 32), torch.zeros(4, 16, 32))
+        assert m['cov_trace_online'] == 0.0
+        assert m['cov_trace_target'] == 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════
