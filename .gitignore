@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+
+# PyTorch
+*.pt
+*.pth
+*.pth.tar
+*.bin
+
+# Output / logs
+output/
+output_debug/
+*.csv
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Cache
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Data
+data/
+*.tar.gz
+
+# Experiment tracking
+wandb/
+mlruns/
+lightning_logs/
+
+# Jupyter
+.ipynb_checkpoints/
