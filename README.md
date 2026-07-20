@@ -58,7 +58,7 @@ L = λ_span · smooth_l1(z_pred, z_target)
   + λ_cov · off_diag(cov)²
 ```
 
-future loss has warmup from 0 — early target encoder is unstable, raw future loss injects noise. without warmup, training diverges within the first ~2k steps.
+future loss has warmup from 0 — early target encoder is unstable, raw future loss injects noise. without warmup, training diverges within the first 2k steps.
 
 diagnostics
 -----------
