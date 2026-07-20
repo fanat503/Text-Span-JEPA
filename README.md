@@ -3,9 +3,9 @@ text-span-jepa
 
 latent prediction at masked spans + future positions.
 
-not token reconstruction. not contrastive. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on low-level token details.
+not token reconstruction. not contrastive. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on low-level token details or noise.
 
-the twist for text: span-level masking (not random tokens) forces the model to use broader context. future latent prediction (where h[t+d] is going) gives it a reason to encode directionality. these two things together are what make this different from I-JEPA (which does images) and data2vec (which does token-level).
+the twist for text: span-level masking forces the model to use broader context. future latent prediction (where h[t+d] is going) gives it a reason to encode directionality. these two things together are what make this different from I-JEPA (it's for images) and data2vec (which does token level).
 
 ---
 
@@ -30,22 +30,22 @@ everything in the YAML, nothing on the CLI. same convention as I-JEPA.
 
 resume: set `meta.load_checkpoint: true` in the config. picks up from `checkpoint-latest.pth.tar`.
 
-configs: `debug.yaml` (sanity), `small-100m.yaml` (~90M, 16GB), `base-200m.yaml` (~140M, 24GB), `large-350m.yaml` (~280M, 40GB), `kaggle.yaml` (tuned for T4).
+configs: `debug.yaml` (something like sanity), `small-100m.yaml` (90M, 16GB (mini model)), `base-200m.yaml` (140M, 24GB), `large-350m.yaml` (280M, 40GB), `kaggle.yaml` (for T4).
 
 architecture
 ------------
 
-three components. nothing else.
+three components.
 
-**encoder** — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled τ = 0.996 → 1.0 (constant τ doesn't work, I-JEPA showed this and we confirmed it).
+encoder — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled tau = from 0.996 to 1.0 (constant tau doesn't work, I-JEPA showed this).
 
-**predictor** — narrow transformer. takes encoder output, inserts mask tokens at span positions, predicts target latent. two modes:
-- span: mask contiguous blocks, predict their latents. iterative refinement (N cheap passes without re-running the encoder). each pass gets a slightly better estimate — like "thinking" in latent space.
-- future: predict h[t+d] from h[t] with learned offset queries. single pass, no refinement. it's a simpler task.
+predictor — narrow transformer. takes encoder output, inserts mask tokens at span positions, predicts target latent. two modes:
+- span: predict latents of masked blocks. each pass gets a slightly better estimate — like "thinking" in latent space.
+- future: predict h[t+d] from h[t] with learned offset queries. it's a simpler task.
 
-**decoder** — weight-tied projection to token space. auxiliary. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it acts as an implicit anti-collapse signal. doesn't dominate training.
+decoder — projection to token space. auxiliary. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it acts as an anti-collapse signal. doesn't dominate training.
 
-collapse prevention: VICReg (variance margin + covariance decorrelation) + data2vec target centering. these are not optional — JEPA models silently collapse (loss goes down, representations become useless, you wouldn't know unless you check).
+collapse prevention: VICReg + data2vec target centering. these are not optional — JEPA models collapse (loss goes down but you wouldn't know unless you check).
 
 loss
 ----
@@ -63,81 +63,80 @@ future loss has warmup from 0 — early target encoder is unstable, raw future l
 diagnostics
 -----------
 
-you cannot debug a JEPA by watching loss go down. loss decreases while representations collapse. you need auxiliary metrics. we log 30+ every step:
+you cannot debug a JEPA by watching loss go down. loss decreases while representations collapse. you need metrics to detect it. we log 30+ every step:
 
-**nextlat / nextlat-rank (Microsoft Research, 2025)**
-effective_rank — shannon entropy of SVD spectrum. should stay >5, collapse → 1
-participation_ratio — (ΣS)²/ΣS², effective dimensionality. 1 = rank-1 collapse
-condition_number — S[0]/S[-1]. healthy 10–1000, ∞ = degenerate
-numerical_rank — torch.linalg.matrix_rank. should be close to min(N,D)
-rank_utilization — numerical_rank / min(N,D). 0.3–0.9 healthy
-coherence — max |off-diagonal| of covariance. low is healthy
+nextlat / nextlat-rank (Microsoft Research, 2025)
+effective_rank
+participation_ratio
+condition_number
+numerical_rank
+rank_utilization
+coherence
 
-**i-jepa (Assran et al., CVPR 2023)**
-collapsed_dim_ratio — fraction of near-zero-variance dimensions. near 0 is healthy
-sv_entropy — normalized entropy of singular values. 1 = spread spectrum, 0 = single component
-representation_stability — cosine between consecutive target updates. >0.99 is good
+i-jepa (Assran et al., CVPR 2023)
+collapsed_dim_ratio
+sv_entropy
+representation_stability
 
-**c-jepa / byol (Grill et al., NeurIPS 2020)**
-svd_sharpness — S[0]²/ΣS². 1 = rank-1 collapse. random data ~1/D
+c-jepa / byol (Grill et al., NeurIPS 2020)
+svd_sharpness
 
-**lecun (2022) — jepa position paper**
-alpha_norm — power-law exponent of SVD spectrum. higher = concentrated information
+lecun (2022) — jepa position paper
+alpha_norm
 
-**ansuini et al. (NeurIPS 2019)**
-intrinsic_dim — two-nearest-neighbor intrinsic dimensionality estimate. lower = more structured
+ansuini et al. (NeurIPS 2019)
+intrinsic_dim
 
-**dinov2 (Oquab et al., 2024)**
-mean_pairwise_cosine — intra-batch cosine similarity. high = collapse
-cov_trace — trace of feature covariance / D. near-zero = collapse
+dinov2 (Oquab et al., 2024)
+mean_pairwise_cosine
+cov_trace
 
-**wang & isola (ICLR 2022)**
-uniformity — alignment + uniformity on hypersphere. measures distribution quality
+wang & isola (ICLR 2022)
+uniformity
 
-**barlow twins (Zbontar et al., ICML 2021)**
-cross_corr_redundancy — mean |off-diagonal| of cross-correlation matrix. near 0 is healthy
+barlow twins (Zbontar et al., ICML 2021)
+cross_corr_redundancy
 
-**kornblith et al. (ICML 2019)**
-cka_linear — linear CKA via HSIC. online-target similarity
-cka_rbf — nonlinear CKA via RBF kernel. more sensitive to differences
+kornblith et al. (ICML 2019)
+cka_linear
+cka_rbf
 
-all follow the nextlat exception pattern: SVD failure → 0.0 (or inf for condition_number). never crash the training loop.
 
 code structure
 --------------
 
 ```
-src/models/       encoder, predictor, decoder, collapse diagnostics, main model
-src/masks/        span masking with curriculum
-src/datasets/     wikitext-103 / bookcorpus (kaggle-compatible)
-src/utils/        schedulers, logging (from I-JEPA)
-src/eval/         linear probe, future-token probe, geometry metrics
-baselines/        data2vec (from official fairseq), MLM
+src/models/       encoder, predictor etc.
+src/masks/        span masking
+src/datasets/     wikitext-103 / bookcorpus (for kaggle)
+src/utils/        schedulers, logging
+src/eval/         probes and geometry metrics
+baselines/        data2vec, MLM
 configs/          per-size YAML configs
-defaults.yaml     default config (all values, NextLat pattern)
-scripts/          training scripts per benchmark
+defaults.yaml     default config
+scripts/          training scripts
 tests/            84 tests
-train_probe.py    probe evaluation (NextLat pattern)
+train_probe.py    probe 
 ```
 
-the differences between text-span jepa, data2vec, and MLM are best understood by reading their respective `compute_loss()` functions. this follows the nextlat convention.
+the differences between text-span jepa, data2vec, and MLM are best understood by reading their respective `compute_loss()` functions.
 
 provenance
 ----------
 
 code patterns from reference implementations (variable names changed):
 
-I-JEPA: momentum scheduler, param groups, smooth_l1 loss, layer_norm on targets, trunc_normal_ init, depth-wise rescaling, AverageMeter, CSVLogger, grad_logger
+I-JEPA
 
-data2vec: get_annealed_rate, regression head (Linear→GELU→Linear), loss scaling by 1/√dim, target centering
+data2vec
 
-NextLat: compute_hidden_state_rank with effective_rank via shannon entropy, exception→0.0, rank_utilization, defaults.yaml
+NextLat
 
-VICReg: variance margin, off-diagonal covariance penalty
+VICReg
 
-Barlow Twins: cross-correlation redundancy
+Barlow Twins
 
-Kornblith et al.: linear CKA via HSIC, RBF CKA
+Kornblith et al.
 
 cite
 ----
@@ -145,7 +144,7 @@ cite
 ```bibtex
 @article{textspanjepa2026,
   title={Text-Span JEPA: Latent Predictive Learning for Language Representations},
-  author={Text-Span JEPA Authors},
+  author={Slyatski Ilya},
   year={2026}
 }
 ```
@@ -153,4 +152,4 @@ cite
 license
 -------
 
-apache 2.0
+Apache 2.0
