@@ -17,7 +17,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-python 3.9+, pytorch 2.0+. trains on wikitext-103 out of the box.
+python 3.9+, pytorch 2.0+. trains on wikitext-103.
 
 training
 --------
