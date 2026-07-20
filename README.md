@@ -5,7 +5,7 @@ latent prediction at masked spans + future positions.
 
 not token reconstruction. not contrastive. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on low-level token details or noise.
 
-the twist for text: span-level masking forces the model to use broader context. future latent prediction (where h[t+d] is going) gives it a reason to encode directionality. these two things together are what make this different from I-JEPA (it's for images) and data2vec (which does token level).
+the twist for text: span-level masking forces the model to use broader context. future latent prediction gives it a reason to encode directionality. these two things together are what make this different from I-JEPA (it's for images) and data2vec (which does token level).
 
 ---
 
