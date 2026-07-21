@@ -10,13 +10,29 @@ from transformers import GPT2Tokenizer
 
 
 class TextDataset(Dataset):
-    """Tokenized text dataset for self-supervised pretraining."""
+    """Tokenized text dataset for self-supervised pretraining.
 
-    def __init__(self, token_ids, seq_len=512):
+    Args:
+        token_ids: list or array of token indices
+        seq_len: sequence length for each chunk
+        drop_last: if True, discard incomplete final chunk (default: True,
+            matching DataLoader drop_last behavior for training).
+            Set to False for evaluation to use all data.
+        pad_id: padding token id for incomplete final chunk (default: 0)
+    """
+
+    def __init__(self, token_ids, seq_len=512, drop_last=True, pad_id=0):
         self.seq_len = seq_len
         self.chunks = []
-        for i in range(0, len(token_ids) - seq_len, seq_len):
+        for i in range(0, len(token_ids) - seq_len + 1, seq_len):
             self.chunks.append(token_ids[i:i + seq_len])
+        # Handle incomplete final chunk
+        if not drop_last:
+            remainder_start = len(self.chunks) * seq_len
+            if remainder_start < len(token_ids):
+                remainder = token_ids[remainder_start:]
+                padded = remainder + [pad_id] * (seq_len - len(remainder))
+                self.chunks.append(padded)
 
     def __len__(self):
         return len(self.chunks)
