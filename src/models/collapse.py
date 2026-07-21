@@ -149,8 +149,18 @@ class CollapseDiagnostics(nn.Module):
             dict of metric_name -> float
         """
         metrics = {}
-        metrics['online_std'] = online_h.std(dim=(0, 1)).mean().item()
-        metrics['target_std'] = target_h.std(dim=(0, 1)).mean().item()
+        # Guard: std() on single-element tensors produces NaN (df=0)
+        # Check tensor size before computing std to avoid PyTorch warnings
+        if online_h.numel() > 1:
+            # Guard: std(dim=(0,1)) needs B>=2 or T>=2 to avoid df=0
+            # When both B=1 and T=1, each column has only 1 value → NaN
+            _os = online_h.std(dim=(0, 1))
+            _ts = target_h.std(dim=(0, 1))
+            metrics['online_std'] = _os.nan_to_num(0.0).mean().item()
+            metrics['target_std'] = _ts.nan_to_num(0.0).mean().item()
+        else:
+            metrics['online_std'] = 0.0
+            metrics['target_std'] = 0.0
 
         online_flat = online_h.reshape(-1, online_h.size(-1))
         target_flat = target_h.reshape(-1, target_h.size(-1))
@@ -231,6 +241,23 @@ class CollapseDiagnostics(nn.Module):
         # --- Feature covariance trace (DINO) ---
         metrics['cov_trace_online'] = self._feature_covariance_trace(online_h)
         metrics['cov_trace_target'] = self._feature_covariance_trace(target_h)
+
+        # --- SVCCA (Raghu et al., ICLR 2017) ---
+        metrics['svcca_online_target'] = self._svcca(online_h, target_h)
+
+        # --- Alignment (Wang & Isola, ICLR 2022) ---
+        metrics['alignment'] = self._alignment(online_flat, target_flat)
+
+        # --- Eigenvalue spread ---
+        metrics['eigenvalue_spread_online'] = self._eigenvalue_spread(online_h)
+        metrics['eigenvalue_spread_target'] = self._eigenvalue_spread(target_h)
+
+        # --- Subspace overlap ---
+        metrics['subspace_overlap'] = self._subspace_overlap(online_h, target_h)
+
+        # --- Spectral clustering coefficient ---
+        metrics['spectral_clustering_coeff_online'] = self._spectral_clustering_coeff(online_h)
+        metrics['spectral_clustering_coeff_target'] = self._spectral_clustering_coeff(target_h)
 
         return metrics
 
@@ -743,5 +770,234 @@ class CollapseDiagnostics(nn.Module):
             if not math.isfinite(val):
                 return 0.0
             return max(val, 0.0)
+        except Exception:
+            return 0.0
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Raghu et al. (ICLR 2017) — SVCCA
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _svcca(x, y, threshold=0.99):
+        """Singular Value CCA between two representations.
+
+        Raghu et al., "SVCCA: Singular Vector Canonical Correlation
+        Analysis", ICLR 2017.
+
+        Steps:
+        1. SVD on each representation, keep components explaining
+           `threshold` fraction of variance
+        2. CCA on the kept components
+        3. Return mean canonical correlation
+
+        FIX: Use right singular vectors (V = Vh.T), NOT left (U).
+        Using U was a bug that always returned 0.0.
+        """
+        try:
+            x_flat = x.reshape(-1, x.size(-1)).float()
+            y_flat = y.reshape(-1, y.size(-1)).float()
+            N, Dx = x_flat.shape
+            _, Dy = y_flat.shape
+
+            if N < 2:
+                return 0.0
+
+            # SVD, keep right singular vectors (V)
+            Ux, Sx, Vhx = torch.linalg.svd(x_flat, full_matrices=False)
+            Uy, Sy, Vhy = torch.linalg.svd(y_flat, full_matrices=False)
+
+            Vx = Vhx.T  # (Dx, Dx) — right singular vectors
+            Vy = Vhy.T  # (Dy, Dy)
+
+            # Keep components explaining `threshold` variance
+            var_x = (Sx ** 2).cumsum(0) / (Sx ** 2).sum()
+            kx = max((var_x < threshold).sum().item() + 1, 1)
+            kx = min(kx, Dx, N)
+
+            var_y = (Sy ** 2).cumsum(0) / (Sy ** 2).sum()
+            ky = max((var_y < threshold).sum().item() + 1, 1)
+            ky = min(ky, Dy, N)
+
+            # Project onto top-k right singular vectors
+            x_proj = x_flat @ Vx[:, :kx]  # (N, kx)
+            y_proj = y_flat @ Vy[:, :ky]  # (N, ky)
+
+            # CCA
+            k = min(kx, ky)
+            if k < 1:
+                return 0.0
+
+            # Compute canonical correlations
+            x_centered = x_proj - x_proj.mean(dim=0)
+            y_centered = y_proj - y_proj.mean(dim=0)
+
+            cov_xx = (x_centered.T @ x_centered) / max(N - 1, 1)
+            cov_yy = (y_centered.T @ y_centered) / max(N - 1, 1)
+            cov_xy = (x_centered.T @ y_centered) / max(N - 1, 1)
+
+            # Regularize
+            eps = 1e-6 * torch.eye(k, device=cov_xx.device)
+            cov_xx_reg = cov_xx + eps
+            cov_yy_reg = cov_yy + eps
+
+            # Solve: cov_xx^{-1/2} cov_xy cov_yy^{-1/2} = U S V^T
+            try:
+                Lx = torch.linalg.cholesky(cov_xx_reg)
+                Ly = torch.linalg.cholesky(cov_yy_reg)
+                inv_Lx = torch.linalg.inv(Lx)
+                inv_Ly = torch.linalg.inv(Ly)
+                M = inv_Lx.T @ cov_xy @ inv_Ly
+                svs = torch.linalg.svdvals(M)
+                # Canonical correlations = singular values, clamped to [0, 1]
+                cc = svs.clamp(0, 1)
+                return cc.mean().item()
+            except Exception:
+                return 0.0
+        except Exception:
+            return 0.0
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Wang & Isola (ICLR 2022) — Alignment
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _alignment(x, y, alpha=2.0):
+        """Alignment between paired representations.
+
+        Wang & Isola, "Understanding Contrastive Representation Learning",
+        ICLR 2022. Measures average distance between paired representations.
+
+        Lower = better aligned. Computed as mean ||x_i - y_i||^alpha.
+        """
+        try:
+            if x.shape != y.shape:
+                return float('inf')
+            N = x.size(0)
+            if N == 0:
+                return float('inf')
+            # Subsample for efficiency
+            if N > 256:
+                idx = torch.randperm(N, device=x.device)[:256]
+                x = x[idx]
+                y = y[idx]
+                N = 256
+            dists = (x - y).norm(dim=-1).pow(alpha)
+            val = dists.mean().item()
+            if not math.isfinite(val):
+                return float('inf')
+            return val
+        except Exception:
+            return float('inf')
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Eigenvalue spread
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _eigenvalue_spread(x):
+        """Spread of eigenvalue spectrum: std(eigenvalues) / mean(eigenvalues).
+
+        High spread = some dimensions dominate = anisotropic.
+        Low spread = eigenvalues are similar = isotropic.
+        """
+        try:
+            flat = x.reshape(-1, x.size(-1)).float()
+            centered = flat - flat.mean(dim=0)
+            N, D = centered.shape
+            if N <= 1:
+                return 0.0
+            cov = (centered.T @ centered) / max(N - 1, 1)
+            eigenvalues = torch.linalg.eigvalsh(cov)
+            eigenvalues = eigenvalues[eigenvalues > 1e-10]
+            if eigenvalues.numel() == 0:
+                return 0.0
+            spread = eigenvalues.std().item() / max(eigenvalues.mean().item(), 1e-10)
+            if not math.isfinite(spread):
+                return 0.0
+            return max(spread, 0.0)
+        except Exception:
+            return 0.0
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Ghojogh et al. (2023) — Subspace overlap
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _subspace_overlap(x, y, k=50):
+        """Subspace overlap between two representation matrices.
+
+        Ghojogh et al., "Subspace Learning and Feature Extraction",
+        2023. Measures how much the top-k subspaces overlap.
+
+        FIX: Use right singular vectors (V = Vh.T), NOT left (U).
+        Using U was a bug that always returned 0.0.
+        """
+        try:
+            x_flat = x.reshape(-1, x.size(-1)).float()
+            y_flat = y.reshape(-1, y.size(-1)).float()
+            N, Dx = x_flat.shape
+            _, Dy = y_flat.shape
+
+            k = min(k, Dx, Dy, N)
+            if k < 1:
+                return 0.0
+
+            # SVD, get right singular vectors
+            _, _, Vhx = torch.linalg.svd(x_flat, full_matrices=False)
+            _, _, Vhy = torch.linalg.svd(y_flat, full_matrices=False)
+
+            Vx = Vhx.T[:, :k]  # (Dx, k) — top-k right singular vectors
+            Vy = Vhy.T[:, :k]  # (Dy, k)
+
+            # Subspace overlap = ||Vx^T Vy||_F^2 / k
+            # If subspaces are identical → overlap = 1
+            # If orthogonal → overlap = 0
+            overlap_matrix = Vx.T @ Vy  # (k, k)
+            overlap = (overlap_matrix ** 2).sum() / k
+
+            val = overlap.item()
+            if not math.isfinite(val):
+                return 0.0
+            return max(min(val, 1.0), 0.0)
+        except Exception:
+            return 0.0
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Spectral clustering coefficient
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _spectral_clustering_coeff(x):
+        """Spectral clustering coefficient from eigenvalue gaps.
+
+        Measures the gap between consecutive eigenvalues of the
+        representation covariance matrix. A large gap after k
+        eigenvalues suggests k natural clusters in the representation.
+
+        Returns the normalized spectral gap: max(eigenvalue[i] - eigenvalue[i+1]) / eigenvalue[0]
+        """
+        try:
+            flat = x.reshape(-1, x.size(-1)).float()
+            centered = flat - flat.mean(dim=0)
+            N, D = centered.shape
+            if N <= 1 or D < 2:
+                return 0.0
+            cov = (centered.T @ centered) / max(N - 1, 1)
+            eigenvalues = torch.linalg.eigvalsh(cov)
+            eigenvalues = eigenvalues.flip(0)  # Descending order
+
+            if eigenvalues[0] <= 1e-10:
+                return 0.0
+
+            # Spectral gaps
+            gaps = eigenvalues[:-1] - eigenvalues[1:]
+            # Only consider gaps in the top half of eigenvalues
+            n_consider = max(len(gaps) // 2, 1)
+            max_gap = gaps[:n_consider].max()
+
+            val = max_gap.item() / eigenvalues[0].item()
+            if not math.isfinite(val):
+                return 0.0
+            return max(min(val, 1.0), 0.0)
         except Exception:
             return 0.0

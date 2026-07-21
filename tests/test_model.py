@@ -823,6 +823,46 @@ class TestEvalProbes:
         assert isinstance(GeometryMetrics._diag, CollapseDiagnostics)
         assert GeometryMetrics.compute is not None
 
+    def test_new_collapse_metrics_in_compute(self):
+        """v0.5.0+ metrics: SVCCA, alignment, eigenvalue_spread, subspace_overlap, spectral_clustering_coeff."""
+        from src.models.collapse import CollapseDiagnostics
+        diag = CollapseDiagnostics()
+        x = torch.randn(4, 16, 32)
+        y = torch.randn(4, 16, 32)
+        m = diag.compute(x, y)
+        # SVCCA
+        assert 'svcca_online_target' in m
+        assert 0 <= m['svcca_online_target'] <= 1
+        # Alignment
+        assert 'alignment' in m
+        assert math.isfinite(m['alignment'])
+        # Eigenvalue spread
+        assert 'eigenvalue_spread_online' in m
+        assert m['eigenvalue_spread_online'] >= 0
+        # Subspace overlap
+        assert 'subspace_overlap' in m
+        assert 0 <= m['subspace_overlap'] <= 1
+        # Spectral clustering coefficient
+        assert 'spectral_clustering_coeff_online' in m
+        assert 0 <= m['spectral_clustering_coeff_online'] <= 1
+
+    def test_subspace_overlap_identical(self):
+        """Subspace overlap with itself should be ~1.0."""
+        from src.models.collapse import CollapseDiagnostics
+        diag = CollapseDiagnostics()
+        x = torch.randn(4, 16, 32)
+        overlap = diag._subspace_overlap(x, x)
+        assert overlap > 0.9
+
+    def test_svcca_similar_representations(self):
+        """SVCCA of similar representations should be high."""
+        from src.models.collapse import CollapseDiagnostics
+        diag = CollapseDiagnostics()
+        x = torch.randn(4, 16, 32)
+        y = x + torch.randn_like(x) * 0.1
+        svcca = diag._svcca(x, y)
+        assert svcca > 0.5
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Checkpoint Save/Load (I-JEPA pattern)
@@ -893,3 +933,564 @@ class TestCheckpoint:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ═══════════════════════════════════════════════════════════════════
+# v0.10.0 — Bug fixes and new features
+# ═══════════════════════════════════════════════════════════════════
+
+class TestV010Bugfixes:
+    def test_encoder_get_intermediate_layers(self):
+        """Encoder should provide per-layer hidden states."""
+        from src.models.encoder import TextSpanJEPLEncoder
+        enc = TextSpanJEPLEncoder(vocab_size=1000, max_seq_len=32, embed_dim=64, depth=4, num_heads=4)
+        x = torch.randint(0, 1000, (2, 16))
+        intermediates = enc.get_intermediate_layers(x)
+        assert len(intermediates) == 4  # 4 blocks
+        assert intermediates[0].shape == (2, 16, 64)
+
+    def test_encoder_forward_return_intermediates(self):
+        """forward() with return_intermediates=True returns 3 values."""
+        from src.models.encoder import TextSpanJEPLEncoder
+        enc = TextSpanJEPLEncoder(vocab_size=1000, max_seq_len=32, embed_dim=64, depth=3, num_heads=4)
+        x = torch.randint(0, 1000, (2, 16))
+        h, tok, intermediates = enc(x, return_intermediates=True)
+        assert h.shape == (2, 16, 64)
+        assert len(intermediates) == 3
+        # Without flag: 2 values
+        h2, tok2 = enc(x)
+        assert h2.shape == (2, 16, 64)
+
+    def test_span_mask_no_double_step(self):
+        """SpanMaskCollator.__call__ should NOT call step() — train loop does."""
+        from src.masks.span import SpanMaskCollator
+        c = SpanMaskCollator(mask_ratio=0.3, span_length_range=(3, 5), mask_token_id=0)
+        step_before = c._step
+        r = c([{'input_ids': torch.tensor([1,2,3,4,5,6,7,8,9,10] * 5)}])
+        step_after = c._step
+        assert step_before == step_after, "SpanMaskCollator should not auto-step"
+
+    def test_trainable_params_count(self):
+        """get_num_params_trainable excludes target encoder."""
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        config = TextSpanJEPAConfig(
+            vocab_size=100, max_seq_len=16, embed_dim=32, encoder_depth=2,
+            num_heads=4, mlp_ratio=2.0, predictor_embed_dim=16,
+            predictor_depth=2, future_offsets=(1,), num_refine_steps=1)
+        model = TextSpanJEPA(config)
+        trainable = model.get_num_params_trainable()
+        total = sum(p.numel() for p in model.parameters())
+        non_trainable = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+        assert trainable + non_trainable == total
+        assert trainable < total  # target_encoder is non-trainable
+
+    def test_ablated_model_loss_subtraction_uses_lambda(self):
+        """AblatedModel should subtract lambda * loss, not raw loss (Fix #15)."""
+        from src.interp.ablation import AblatedModel, AblationConfig
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        config = TextSpanJEPAConfig(
+            vocab_size=100, max_seq_len=16, embed_dim=32, encoder_depth=2,
+            num_heads=4, mlp_ratio=2.0, predictor_embed_dim=16,
+            predictor_depth=2, future_offsets=(1,), num_refine_steps=1,
+            lambda_decoder=0.1)
+        model = TextSpanJEPA(config)
+        ablation = AblationConfig('no_dec', use_decoder=False)
+        ablated = AblatedModel(model, ablation)
+
+        ids = torch.randint(0, 100, (2, 16))
+        mask = torch.zeros(2, 16, dtype=torch.long); mask[:, 3:6] = 1
+        loss_ablated, info = ablated(ids, ids, mask)
+
+        # Compute full model loss for comparison
+        loss_full, info_full, _ = model.compute_loss_with_targets(ids, ids, mask)
+        # Ablated loss should be: full_loss - lambda_decoder * loss_decoder
+        expected = loss_full - config.lambda_decoder * info_full['loss_decoder']
+        assert abs(loss_ablated.item() - expected.item()) < 0.01
+
+    def test_ablated_model_forward_signature(self):
+        """AblatedModel.forward takes (masked_input_ids, original_input_ids, mask_positions)."""
+        from src.interp.ablation import AblatedModel, AblationConfig
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        config = TextSpanJEPAConfig(
+            vocab_size=100, max_seq_len=16, embed_dim=32, encoder_depth=2,
+            num_heads=4, mlp_ratio=2.0, predictor_embed_dim=16,
+            predictor_depth=2, future_offsets=(1,), num_refine_steps=1)
+        model = TextSpanJEPA(config)
+        ablation = AblationConfig('test')
+        ablated = AblatedModel(model, ablation)
+        ids = torch.randint(0, 100, (2, 16))
+        mask = torch.zeros(2, 16, dtype=torch.long); mask[:, 3:6] = 1
+        # This should work with train-loop argument order
+        loss, info = ablated(ids, ids, mask)
+        assert torch.isfinite(loss)
+
+    def test_ablated_model_skip_refinement(self):
+        """Ablation with no_iterative_refinement should set refine steps to 0."""
+        from src.interp.ablation import AblatedModel, AblationConfig
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        config = TextSpanJEPAConfig(
+            vocab_size=100, max_seq_len=16, embed_dim=32, encoder_depth=2,
+            num_heads=4, mlp_ratio=2.0, predictor_embed_dim=16,
+            predictor_depth=2, future_offsets=(1,), num_refine_steps=3)
+        model = TextSpanJEPA(config)
+        ablation = AblationConfig('no_refine', use_iterative_refinement=False)
+        ablated = AblatedModel(model, ablation)
+
+        ids = torch.randint(0, 100, (2, 16))
+        mask = torch.zeros(2, 16, dtype=torch.long); mask[:, 3:6] = 1
+        # Forward should work with refinement temporarily disabled
+        loss, info = ablated(ids, ids, mask)
+        assert torch.isfinite(loss)
+        # After forward, refinement steps should be restored
+        assert model.predictor.num_refine_steps == 3
+
+
+class TestV010NewFeatures:
+    def test_seed_everything(self):
+        """seed_everything should produce deterministic results."""
+        from src.utils.seed import seed_everything
+        seed_everything(42)
+        a = torch.randn(10)
+        seed_everything(42)
+        b = torch.randn(10)
+        assert torch.allclose(a, b)
+
+    def test_flops_estimation(self):
+        """FLOPs estimation should return reasonable values."""
+        from src.utils.flops import estimate_transformer_flops, estimate_training_flops
+        result = estimate_transformer_flops(120e6, 512, batch_size=64)
+        assert result['tflops'] > 0
+        train_result = estimate_training_flops(120e6, 512, 64, 100000)
+        assert train_result['pflops'] > 0
+
+    def test_model_size_category(self):
+        """Model size categorization."""
+        from src.utils.flops import model_size_category
+        assert model_size_category(5e6) == 'tiny'
+        assert model_size_category(50e6) == 'small'
+        assert model_size_category(150e6) == 'base'
+        assert model_size_category(1e9) == 'large'
+
+    def test_ablation_model_size_configs(self):
+        """Ablation framework should have model size variants."""
+        from src.interp.ablation import MODEL_SIZE_CONFIGS, ABLATION_MATRIX
+        assert 'tiny' in MODEL_SIZE_CONFIGS
+        assert 'base' in MODEL_SIZE_CONFIGS
+        assert len(ABLATION_MATRIX) == len(MODEL_SIZE_CONFIGS) * 12  # 4 sizes x 12 ablations
+
+    def test_new_visualization_ablation_chart(self):
+        """ablation_comparison_chart should produce valid SVG."""
+        from src.interp.visualization import ablation_comparison_chart
+        svg = ablation_comparison_chart(
+            ablation_names=['no_predictor', 'no_vicreg', 'no_decoder'],
+            metric_name='Effective Rank',
+            values=[15.0, 30.0, 35.0],
+            full_model_value=40.0)
+        assert svg is not None and '<svg' in svg
+
+    def test_new_visualization_scaling_law(self):
+        """scaling_law_plot should produce valid SVG."""
+        from src.interp.visualization import scaling_law_plot
+        svg = scaling_law_plot(
+            sizes=[1e6, 10e6, 100e6],
+            jepa_metrics=[15, 30, 50],
+            baseline_metrics=[12, 22, 35])
+        assert svg is not None and '<svg' in svg
+
+    def test_new_visualization_robustness_curve(self):
+        """robustness_curve should produce valid SVG."""
+        from src.interp.visualization import robustness_curve
+        svg = robustness_curve(
+            intensities=[0.1, 0.3, 0.5, 0.7],
+            jepa_cka=[0.98, 0.90, 0.80, 0.70],
+            baseline_cka=[0.95, 0.80, 0.60, 0.40])
+        assert svg is not None and '<svg' in svg
+
+    def test_new_visualization_information_plane(self):
+        """information_plane should produce valid SVG."""
+        from src.interp.visualization import information_plane
+        svg = information_plane(
+            mi_input=[5.0, 4.5, 4.0, 3.5, 3.0, 2.5],
+            mi_task=[0.5, 1.0, 1.5, 2.0, 2.2, 2.3])
+        assert svg is not None and '<svg' in svg
+
+
+# ═══════════════════════════════════════════════════════════════════
+# v0.11.0 — Critical training bugs + config validation + grad accum
+# ═══════════════════════════════════════════════════════════════════
+
+class TestV011TrainingReadiness:
+    def test_config_validate_good(self):
+        """Good config should pass validation."""
+        from src.models.jepa import TextSpanJEPAConfig
+        cfg = TextSpanJEPAConfig(embed_dim=768, num_heads=12,
+                                 predictor_embed_dim=384)
+        assert cfg.validate() is True
+
+    def test_config_validate_bad_embed_dim(self):
+        """embed_dim not divisible by num_heads should raise."""
+        from src.models.jepa import TextSpanJEPAConfig
+        cfg = TextSpanJEPAConfig(embed_dim=100, num_heads=12)
+        with pytest.raises(ValueError, match="embed_dim"):
+            cfg.validate()
+
+    def test_config_validate_bad_predictor_dim(self):
+        """predictor_embed_dim not divisible by num_heads should raise."""
+        from src.models.jepa import TextSpanJEPAConfig
+        cfg = TextSpanJEPAConfig(embed_dim=768, num_heads=12,
+                                 predictor_embed_dim=100)
+        with pytest.raises(ValueError, match="predictor_embed_dim"):
+            cfg.validate()
+
+    def test_config_validate_bad_depth(self):
+        """depth < 1 should raise."""
+        from src.models.jepa import TextSpanJEPAConfig
+        cfg = TextSpanJEPAConfig(encoder_depth=0)
+        with pytest.raises(ValueError, match="encoder_depth"):
+            cfg.validate()
+
+    def test_textdataset_off_by_one(self):
+        """TextDataset with exactly seq_len tokens should give 1 chunk."""
+        from src.datasets.kaggle import TextDataset
+        ds = TextDataset(list(range(512)), seq_len=512)
+        assert len(ds) == 1, f"Expected 1 chunk, got {len(ds)}"
+
+    def test_textdataset_normal(self):
+        """TextDataset with 2*seq_len tokens should give 2 chunks."""
+        from src.datasets.kaggle import TextDataset
+        ds = TextDataset(list(range(1024)), seq_len=512)
+        assert len(ds) == 2
+
+    def test_textdataset_short(self):
+        """TextDataset with fewer than seq_len tokens should give 0 chunks."""
+        from src.datasets.kaggle import TextDataset
+        ds = TextDataset(list(range(100)), seq_len=512)
+        assert len(ds) == 0
+
+    def test_mlm_baseline_has_encoder_and_decoder(self):
+        """MLMBaseline must have .encoder and .decoder for train.py."""
+        from baselines.mlm_baseline import MLMBaseline
+        m = MLMBaseline(vocab_size=1000, max_seq_len=32, embed_dim=64, depth=2, num_heads=4)
+        assert hasattr(m, 'encoder')
+        assert hasattr(m, 'decoder')  # decoder = mlm_head alias
+        assert m.decoder is m.mlm_head
+
+    def test_mlm_baseline_get_num_params(self):
+        """MLMBaseline.get_num_params should work."""
+        from baselines.mlm_baseline import MLMBaseline
+        m = MLMBaseline(vocab_size=1000, max_seq_len=32, embed_dim=64, depth=2, num_heads=4)
+        n = m.get_num_params()
+        assert n > 0
+
+    def test_model_factory_jepa(self):
+        """create_model with text_span_jepa should create JEPA model."""
+        from src.train import create_model
+        model = create_model('text_span_jepa',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4,
+                              'predictor_embed_dim': 32, 'predictor_depth': 2,
+                              'future_offsets': [1], 'num_refine_steps': 1},
+                             vocab_size=1000, max_seq_len=32, device='cpu')
+        from src.models.jepa import TextSpanJEPA
+        assert isinstance(model, TextSpanJEPA)
+
+    def test_model_factory_mlm(self):
+        """create_model with mlm should create MLM baseline."""
+        from src.train import create_model
+        model = create_model('mlm',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4},
+                             vocab_size=1000, max_seq_len=32, device='cpu')
+        from baselines.mlm_baseline import MLMBaseline
+        assert isinstance(model, MLMBaseline)
+
+    def test_model_factory_data2vec(self):
+        """create_model with data2vec should create data2vec baseline."""
+        from src.train import create_model
+        model = create_model('data2vec',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4},
+                             vocab_size=1000, max_seq_len=32, device='cpu')
+        from baselines.data2vec_baseline import Data2VecTextBaseline
+        assert isinstance(model, Data2VecTextBaseline)
+
+    def test_model_factory_unknown(self):
+        """create_model with unknown name should raise."""
+        from src.train import create_model
+        with pytest.raises(ValueError, match="Unknown model_name"):
+            create_model('roberta', {}, vocab_size=1000, max_seq_len=32, device='cpu')
+
+    def test_compute_loss_unified_interface(self):
+        """compute_loss should work for all model types."""
+        from src.train import compute_loss
+        # JEPA
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        cfg = TextSpanJEPAConfig(vocab_size=100, max_seq_len=16, embed_dim=32,
+                                  encoder_depth=2, num_heads=4, mlp_ratio=2.0,
+                                  predictor_embed_dim=16, predictor_depth=2,
+                                  future_offsets=(1,), num_refine_steps=1)
+        jepa = TextSpanJEPA(cfg)
+        ids = torch.randint(0, 100, (2, 16))
+        mask = torch.zeros(2, 16, dtype=torch.long); mask[:, 3:6] = 1
+        loss, ld, dd = compute_loss(jepa, ids, ids, mask)
+        assert torch.isfinite(loss)
+
+        # MLM
+        from baselines.mlm_baseline import MLMBaseline
+        mlm = MLMBaseline(vocab_size=100, max_seq_len=16, embed_dim=32, depth=2, num_heads=4)
+        loss2, ld2, dd2 = compute_loss(mlm, ids, ids, mask)
+        assert torch.isfinite(loss2)
+
+        # data2vec
+        from baselines.data2vec_baseline import Data2VecTextBaseline
+        d2v = Data2VecTextBaseline(vocab_size=100, max_seq_len=16, embed_dim=32, depth=2, num_heads=4)
+        loss3, ld3, dd3 = compute_loss(d2v, ids, ids, mask)
+        assert torch.isfinite(loss3)
+
+    def test_get_param_groups_all_models(self):
+        """get_param_groups should work for all model types."""
+        from src.train import get_param_groups
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        from baselines.mlm_baseline import MLMBaseline
+        from baselines.data2vec_baseline import Data2VecTextBaseline
+
+        cfg = TextSpanJEPAConfig(vocab_size=100, max_seq_len=16, embed_dim=32,
+                                  encoder_depth=2, num_heads=4, mlp_ratio=2.0,
+                                  predictor_embed_dim=16, predictor_depth=2,
+                                  future_offsets=(1,), num_refine_steps=1)
+
+        # JEPA
+        jepa = TextSpanJEPA(cfg)
+        pg_jepa = get_param_groups(jepa, 'text_span_jepa')
+        opt_jepa = torch.optim.AdamW(pg_jepa)
+        assert opt_jepa is not None
+
+        # MLM
+        mlm = MLMBaseline(vocab_size=100, max_seq_len=16, embed_dim=32, depth=2, num_heads=4)
+        pg_mlm = get_param_groups(mlm, 'mlm')
+        opt_mlm = torch.optim.AdamW(pg_mlm)
+        assert opt_mlm is not None
+
+        # data2vec
+        d2v = Data2VecTextBaseline(vocab_size=100, max_seq_len=16, embed_dim=32, depth=2, num_heads=4)
+        pg_d2v = get_param_groups(d2v, 'data2vec')
+        opt_d2v = torch.optim.AdamW(pg_d2v)
+        assert opt_d2v is not None
+
+    def test_checkpoint_saves_centering_state(self, tmp_path):
+        """save_checkpoint should include target_centering.center."""
+        from src.train import save_checkpoint, load_checkpoint
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        cfg = TextSpanJEPAConfig(vocab_size=100, max_seq_len=16, embed_dim=32,
+                                  encoder_depth=2, num_heads=4, mlp_ratio=2.0,
+                                  predictor_embed_dim=16, predictor_depth=2,
+                                  future_offsets=(1,), num_refine_steps=1)
+        model = TextSpanJEPA(cfg)
+        # Run one forward to populate center
+        ids = torch.randint(0, 100, (2, 16))
+        mask = torch.zeros(2, 16, dtype=torch.long); mask[:, 3:6] = 1
+        model.compute_loss_with_targets(ids, ids, mask)
+        center_before = model.target_centering.center.clone()
+
+        opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad])
+        ckpt_path = str(tmp_path / 'test_ckpt.pth.tar')
+        save_checkpoint(ckpt_path, model, opt, None, 1, 100, ema_step=50, mask_step=30)
+
+        # Create fresh model and load
+        model2 = TextSpanJEPA(cfg)
+        opt2 = torch.optim.AdamW([p for p in model2.parameters() if p.requires_grad])
+        ep, gs, ema_s, mask_s, extra = load_checkpoint(ckpt_path, model2, opt2, None)
+
+        assert ep == 1
+        assert gs == 100
+        assert ema_s == 50
+        assert mask_s == 30
+        assert torch.allclose(model2.target_centering.center, center_before)
+
+    def test_mlm_training_loop(self):
+        """MLM should train without error for 50 steps."""
+        from baselines.mlm_baseline import MLMBaseline
+        m = MLMBaseline(vocab_size=100, max_seq_len=16, embed_dim=32, depth=2, num_heads=4)
+        opt = torch.optim.AdamW(m.parameters(), lr=1e-3)
+        losses = []
+        for _ in range(50):
+            ids = torch.randint(0, 100, (4, 16))
+            mask = torch.zeros(4, 16, dtype=torch.long); mask[:, 3:6] = 1
+            loss, _ = m.compute_loss(ids, ids, mask)
+            opt.zero_grad(); loss.backward(); opt.step()
+            losses.append(loss.item())
+        assert losses[-1] < losses[0], "MLM loss should decrease"
+
+    def test_data2vec_training_loop(self):
+        """data2vec should train without error for 50 steps."""
+        from baselines.data2vec_baseline import Data2VecTextBaseline
+        d2v = Data2VecTextBaseline(vocab_size=100, max_seq_len=16, embed_dim=32, depth=2, num_heads=4)
+        # Train encoder + regression_head (NOT target_encoder)
+        params = list(d2v.encoder.parameters()) + list(d2v.regression_head.parameters())
+        opt = torch.optim.AdamW(params, lr=1e-3)
+        losses = []
+        for _ in range(50):
+            ids = torch.randint(0, 100, (4, 16))
+            mask = torch.zeros(4, 16, dtype=torch.long); mask[:, 3:6] = 1
+            loss, _ = d2v(ids, ids, mask)
+            opt.zero_grad(); loss.backward(); opt.step()
+            d2v.update_target_encoder()
+            losses.append(loss.item())
+        assert losses[-1] < losses[0], "data2vec loss should decrease"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  v0.12.0 Bugfixes — critical model_name mapping + checkpoint fixes
+# ═══════════════════════════════════════════════════════════════════
+
+class TestV012Bugfixes:
+    """Tests for v0.12.0 critical bug fixes."""
+
+    def test_normalize_model_name_jepa_variants(self):
+        from src.train import _normalize_model_name
+        assert _normalize_model_name('text_span_jepa') == 'text_span_jepa'
+        assert _normalize_model_name('text_span_jepa_small') == 'text_span_jepa'
+        assert _normalize_model_name('text_span_jepa_base') == 'text_span_jepa'
+        assert _normalize_model_name('jepa_tiny') == 'text_span_jepa'
+
+    def test_normalize_model_name_mlm_variants(self):
+        from src.train import _normalize_model_name
+        assert _normalize_model_name('mlm') == 'mlm'
+        assert _normalize_model_name('mlm_small') == 'mlm'
+        assert _normalize_model_name('mlm_baseline') == 'mlm'
+
+    def test_normalize_model_name_data2vec_variants(self):
+        from src.train import _normalize_model_name
+        assert _normalize_model_name('data2vec') == 'data2vec'
+        assert _normalize_model_name('data2vec_base') == 'data2vec'
+        assert _normalize_model_name('data2vec_baseline') == 'data2vec'
+
+    def test_create_model_with_suffixed_name(self):
+        """Config uses 'text_span_jepa_small' — create_model should handle it."""
+        from src.train import create_model
+        model = create_model('text_span_jepa_small',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4,
+                              'mlp_ratio': 2.0, 'predictor_embed_dim': 32,
+                              'predictor_depth': 2, 'future_offsets': [1],
+                              'num_refine_steps': 1},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        assert model.encoder is not None
+
+    def test_create_model_mlm_suffixed(self):
+        from src.train import create_model
+        model = create_model('mlm_small',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4, 'mlp_ratio': 2.0},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        assert model.encoder is not None
+
+    def test_create_model_data2vec_suffixed(self):
+        from src.train import create_model
+        model = create_model('data2vec_base',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4, 'mlp_ratio': 2.0},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        assert model.encoder is not None
+
+    def test_param_groups_with_suffixed_name(self):
+        """get_param_groups should return correct groups for suffixed names."""
+        from src.train import create_model, get_param_groups
+        model = create_model('text_span_jepa_small',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4,
+                              'mlp_ratio': 2.0, 'predictor_embed_dim': 32,
+                              'predictor_depth': 2, 'future_offsets': [1],
+                              'num_refine_steps': 1},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        groups = get_param_groups(model, 'text_span_jepa_small', wd=0.04)
+        assert len(groups) == 5, f"Expected 5 param groups, got {len(groups)}"
+
+    def test_mlm_checkpoint_save_load(self):
+        """MLM checkpoint should save/load without AttributeError."""
+        import tempfile, os
+        from src.train import create_model, save_checkpoint, load_checkpoint
+        model = create_model('mlm',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4, 'mlp_ratio': 2.0},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'mlm.pt')
+            save_checkpoint(path, model, opt, None, 1, 100, model_name='mlm')
+            e, gs, _, _, _ = load_checkpoint(path, model, opt, None, model_name='mlm')
+            assert e == 1
+            assert gs == 100
+
+    def test_data2vec_checkpoint_save_load(self):
+        """data2vec checkpoint should save/load without AttributeError."""
+        import tempfile, os
+        from src.train import create_model, save_checkpoint, load_checkpoint
+        model = create_model('data2vec',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4, 'mlp_ratio': 2.0},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'd2v.pt')
+            save_checkpoint(path, model, opt, None, 2, 200, model_name='data2vec')
+            e, gs, _, _, _ = load_checkpoint(path, model, opt, None, model_name='data2vec')
+            assert e == 2
+            assert gs == 200
+
+    def test_do_ema_update_suffixed_names(self):
+        """do_ema_update should work with suffixed model names."""
+        from src.train import create_model, do_ema_update
+        model = create_model('text_span_jepa_small',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4,
+                              'mlp_ratio': 2.0, 'predictor_embed_dim': 32,
+                              'predictor_depth': 2, 'future_offsets': [1],
+                              'num_refine_steps': 1},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        do_ema_update(model, 'text_span_jepa_small', tau=0.996)  # Should not raise
+
+    def test_global_grad_clipping_no_target_encoder(self):
+        """_get_all_trainable_params should exclude target encoder params."""
+        from src.train import create_model, _get_all_trainable_params
+        model = create_model('text_span_jepa',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4,
+                              'mlp_ratio': 2.0, 'predictor_embed_dim': 32,
+                              'predictor_depth': 2, 'future_offsets': [1],
+                              'num_refine_steps': 1},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        params = _get_all_trainable_params(model)
+        target_ids = {id(p) for p in model.target_encoder.parameters()}
+        trainable_ids = {id(p) for p in params}
+        overlap = target_ids & trainable_ids
+        assert len(overlap) == 0, "Target encoder params should not be trainable"
+
+    def test_defaults_yaml_has_grad_accum_steps(self):
+        """defaults.yaml should have grad_accum_steps."""
+        import yaml
+        with open('defaults.yaml') as f:
+            cfg = yaml.safe_load(f)
+        assert 'grad_accum_steps' in cfg.get('optimization', {}), \
+            "grad_accum_steps missing from defaults.yaml"
+
+    def test_jepa_training_loss_decreases(self):
+        """100-step JEPA training: loss should decrease."""
+        from src.train import create_model, compute_loss
+        from src.utils.seed import seed_everything
+        seed_everything(42)
+        model = create_model('text_span_jepa',
+                             {'embed_dim': 64, 'encoder_depth': 2, 'num_heads': 4,
+                              'mlp_ratio': 2.0, 'predictor_embed_dim': 32,
+                              'predictor_depth': 2, 'future_offsets': [1],
+                              'num_refine_steps': 1},
+                             vocab_size=100, max_seq_len=16,
+                             device=torch.device('cpu'))
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        losses = []
+        for step in range(50):
+            ids = torch.randint(0, 100, (4, 16))
+            mask = torch.zeros(4, 16, dtype=torch.long)
+            mask[:, 3:6] = 1
+            loss, _, _ = compute_loss(model, ids, ids, mask, current_step=step, total_steps=50)
+            opt.zero_grad(); loss.backward(); opt.step()
+            model.update_target_encoder(tau=0.996)
+            losses.append(loss.item())
+        assert losses[-1] < losses[0], "JEPA loss should decrease over training"

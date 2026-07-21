@@ -90,7 +90,10 @@ class SpanMaskCollator:
         masked_input_ids = input_ids.clone()
         masked_input_ids[mask_positions.bool()] = self.mask_token_id
 
-        self.step()
+        # NOTE: step() is NOT called here — the training loop calls
+        # mask_collator.step() after each training step to advance the
+        # curriculum. Calling step() both here and in the training loop
+        # would double-advance the curriculum.
 
         return {
             'masked_input_ids': masked_input_ids,

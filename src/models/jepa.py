@@ -70,6 +70,27 @@ class TextSpanJEPAConfig:
         # Fix #2: Future loss warmup (prevents instability from early target encoder)
         self.future_warmup_steps = kwargs.get('future_warmup_steps', 0)
 
+    def validate(self):
+        """Validate config values — catch dimension errors before model creation.
+
+        Checks that embed_dim and predictor_embed_dim are divisible by num_heads.
+        """
+        if self.embed_dim % self.num_heads != 0:
+            raise ValueError(
+                f"embed_dim={self.embed_dim} must be divisible by "
+                f"num_heads={self.num_heads} (got {self.embed_dim}/{self.num_heads}"
+                f"={self.embed_dim/self.num_heads:.1f})")
+        if self.predictor_embed_dim % self.num_heads != 0:
+            raise ValueError(
+                f"predictor_embed_dim={self.predictor_embed_dim} must be divisible by "
+                f"num_heads={self.num_heads} (got {self.predictor_embed_dim}/{self.num_heads}"
+                f"={self.predictor_embed_dim/self.num_heads:.1f})")
+        if self.encoder_depth < 1:
+            raise ValueError(f"encoder_depth must be >= 1, got {self.encoder_depth}")
+        if self.predictor_depth < 1:
+            raise ValueError(f"predictor_depth must be >= 1, got {self.predictor_depth}")
+        return True
+
 
 class TextSpanJEPA(nn.Module):
     """Text-Span JEPA: Latent Predictive Learning for Language Representations."""
@@ -265,3 +286,7 @@ class TextSpanJEPA(nn.Module):
         pred = self.predictor.get_num_params()
         dec = sum(p.numel() for p in self.decoder.parameters())
         return enc + pred + dec
+
+    def get_num_params_trainable(self):
+        """Count only trainable parameters (excludes EMA target encoder)."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)

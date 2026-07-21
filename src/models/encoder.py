@@ -162,21 +162,32 @@ class TextSpanJEPLEncoder(nn.Module):
         elif isinstance(m, nn.Embedding):
             nn.init.trunc_normal_(m.weight, std=self.init_std)
 
-    def forward(self, input_ids):
+    def forward(self, input_ids, return_intermediates=False):
         """Encode token sequence.
 
         Args:
             input_ids: (B, T) token indices
+            return_intermediates: if True, return per-layer hidden states
+
         Returns:
             hidden_states: (B, T, embed_dim)
             token_embeds: (B, T, embed_dim) raw token embeddings
+            intermediates: list of (B, T, embed_dim) per layer (only if return_intermediates=True)
         """
         B, T = input_ids.shape
         token_embeds = self.token_embedding(input_ids)
         x = token_embeds + self.pos_embedding[:, :T, :]
+
+        intermediates = []
         for blk in self.blocks:
             x = blk(x)
+            if return_intermediates:
+                intermediates.append(x)
+
         x = self.norm(x)
+
+        if return_intermediates:
+            return x, token_embeds, intermediates
         return x, token_embeds
 
     def get_num_params(self, non_embedding=True):
@@ -185,3 +196,24 @@ class TextSpanJEPLEncoder(nn.Module):
             n_params -= self.token_embedding.weight.numel()
             n_params -= self.pos_embedding.numel()
         return n_params
+
+    def get_intermediate_layers(self, input_ids):
+        """Get hidden states from each transformer block.
+
+        Used by interpretability analysis (layer-wise CKA, probing, etc.).
+
+        Args:
+            input_ids: (B, T) token indices
+
+        Returns:
+            list of (B, T, embed_dim) tensors, one per block
+        """
+        B, T = input_ids.shape
+        token_embeds = self.token_embedding(input_ids)
+        x = token_embeds + self.pos_embedding[:, :T, :]
+
+        intermediates = []
+        for blk in self.blocks:
+            x = blk(x)
+            intermediates.append(x.clone())
+        return intermediates
