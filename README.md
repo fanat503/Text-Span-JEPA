@@ -63,9 +63,9 @@ future loss has warmup from 0 — early target encoder is unstable, raw future l
 diagnostics
 -----------
 
-you cannot debug a JEPA by watching loss go down. loss decreases while representations collapse. you need metrics to detect it. we log 30+ every step:
+you cannot debug a JEPA by watching loss go down. loss decreases while representations can collapse. you need metrics to detect it. we log 30+ every step:
 
-nextlat / nextlat-rank (Microsoft Research, 2025)
+nextlat / nextlat-rank (Microsoft Research)
 effective_rank
 participation_ratio
 condition_number
