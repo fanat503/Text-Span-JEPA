@@ -17,7 +17,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-python 3.9+, pytorch 2.0+. trains on wikitext-103.
+python 3.9+, pytorch 2.0+. trains on wikitext.
 
 training
 --------
@@ -40,7 +40,7 @@ three components.
 encoder — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled tau = from 0.996 to 1.0 (constant tau doesn't work, I-JEPA showed this).
 
 predictor — narrow transformer. takes encoder output, inserts mask tokens at span positions, predicts target latent. two modes:
-- span: predict latents of masked blocks. each pass gets a slightly better estimate — like "thinking" in latent space.
+- span: predict latents of masked blocks. each pass gets a slightly better estimate — like thinking in latent space.
 - future: predict h[t+d] from h[t] with learned offset queries. it's a simpler task.
 
 decoder — projection to token space. auxiliary. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it acts as an anti-collapse signal. doesn't dominate training.
