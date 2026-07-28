@@ -3,9 +3,9 @@ text-span-jepa
 
 latent prediction at masked spans + future positions.
 
-not token reconstruction. not contrastive. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on low-level token details or noise.
+not token reconstruction. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on low-level token details or noise.
 
-the twist for text: span-level masking forces the model to use broader context. future latent prediction gives it a reason to encode directionality. these two things together are what make this different from I-JEPA (it's for images) and data2vec (which does token level).
+the twist for text: span-level masking forces the model to use broader context. future latent prediction gives it a reason to encode directionality. these two things together are what make this different from I-JEPA and data2vec.
 
 ---
 
@@ -26,8 +26,6 @@ training
 python -m src.train --fname configs/small-100m.yaml
 ```
 
-everything in the YAML, nothing on the CLI. same convention as I-JEPA.
-
 resume: set `meta.load_checkpoint: true` in the config. picks up from `checkpoint-latest.pth.tar`.
 
 configs: `debug.yaml` (something like sanity), `small-100m.yaml` (90M, 16GB (mini model)), `base-200m.yaml` (140M, 24GB), `large-350m.yaml` (280M, 40GB), `kaggle.yaml` (for T4).
@@ -45,25 +43,15 @@ predictor — narrow transformer. takes encoder output, inserts mask tokens at s
 
 decoder — projection to token space. auxiliary. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it acts as an anti-collapse signal. doesn't dominate training.
 
-collapse prevention: VICReg + data2vec target centering. these are not optional — JEPA models collapse (loss goes down but you wouldn't know unless you check).
+collapse prevention: VICReg + data2vec target centering.
 
-loss
-----
 
-```
-L = λ_span · smooth_l1(z_pred, z_target)
-  + λ_future · smooth_l1(z_future, z_target_future)
-  + λ_dec · CE(logits, tokens)
-  + λ_var · max(0, margin − √var)
-  + λ_cov · off_diag(cov)²
-```
-
-future loss has warmup from 0 — early target encoder is unstable, raw future loss injects noise. without warmup, training diverges within the first 2k steps.
+future loss has warmup from 0. without warmup, training diverges within the first 2k steps.
 
 diagnostics
 -----------
 
-you cannot debug a JEPA by watching loss go down. loss decreases while representations can collapse. you need metrics to detect it. we log 30+ every step:
+we log these metrics every step:
 
 nextlat / nextlat-rank (Microsoft Research)
 effective_rank
