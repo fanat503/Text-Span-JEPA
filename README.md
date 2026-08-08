@@ -36,10 +36,7 @@ encoder — bidirectional transformer. same architecture for online and target. 
 
 predictor — narrow transformer.
 
-decoder — projection to token space. auxiliary.
-
-collapse prevention: VICReg + data2vec target centering.
-
+decoder — projection to token space.
 
 
 ```bibtex
