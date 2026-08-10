@@ -172,26 +172,25 @@ class TextSpanJEPA(nn.Module):
 
         self.sigreg = SIGReg(
             embed_dim=config.embed_dim,
-            n_sketches=getattr(config, 'sigreg_n_sketches', 64),
-            n_integration_points=getattr(config, 'sigreg_n_integration_points', 17),
-            sigma=getattr(config, 'sigreg_sigma', 1.0),
+            n_sketches=config.sigreg_n_sketches,
+            n_integration_points=config.sigreg_n_integration_points,
+            sigma=config.sigreg_sigma,
         )
 
         self.jspace_metrics = JSpaceMetrics(
-            variance_threshold=getattr(config, 'jspace_variance_threshold', 0.10),
-            k_workspace=getattr(config, 'jspace_k_workspace', 25),
+            variance_threshold=config.jspace_variance_threshold,
+            k_workspace=config.jspace_k_workspace,
         )
 
-        # JAWP
-        use_jawp = getattr(config, 'use_jawp', True)
-        if use_jawp:
+        # JAWP — novel mechanism: Jacobian-Aligned Workspace Prediction
+        if config.use_jawp:
             self.jawp = JAWPModule(
                 embed_dim=config.embed_dim,
-                k_start=getattr(config, 'jawk_k_start', 1),
-                k_end=getattr(config, 'jawk_k_end', None),
-                curriculum_steps=getattr(config, 'jawk_curriculum_steps', 10000),
-                alpha=getattr(config, 'jawk_alpha', 0.1),
-                init=getattr(config, 'jawk_init', 'identity'),
+                k_start=config.jawk_k_start,
+                k_end=config.jawk_k_end,
+                curriculum_steps=config.jawk_curriculum_steps,
+                alpha=config.jawk_alpha,
+                init=config.jawk_init,
             )
         else:
             self.jawp = None

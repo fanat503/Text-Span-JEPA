@@ -365,6 +365,38 @@ class TestV025Integration:
         ortho_err = off_diag.abs().max().item()
         assert ortho_err < 0.01, f"Q not orthonormal after retraction: err={ortho_err}"
 
+    def test_spectral_gap_detection(self):
+        """Spectral gap detection should find correct k* for synthetic data."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=64, k_start=1, k_end=20)
+
+        # Create synthetic data with 5 workspace dims (low residual) + 59 noise
+        torch.manual_seed(42)
+        N = 200
+        D = 64
+        k_true = 5
+        z_target = torch.randn(N, D)
+        z_pred = z_target.clone()
+        # Make first k_true dims predictable (small residual)
+        z_pred[:, :k_true] = z_target[:, :k_true] + 0.01 * torch.randn(N, k_true)
+        # Rest are unpredictable (large residual)
+        z_pred[:, k_true:] = z_target[:, k_true:] + 2.0 * torch.randn(N, D - k_true)
+
+        k_star, info = jawp.detect_workspace_dimension(z_pred, z_target)
+        assert info['method'] == 'spectral_gap', f"Should use spectral gap method, got {info['method']}"
+        # Should detect k* close to k_true=5 (allow ±3 tolerance for finite sample)
+        assert 2 <= k_star <= 10, f"Detected k*={k_star}, expected ~{k_true}"
+        assert k_star > 0
+
+    def test_spectral_gap_returns_fallback_on_small_data(self):
+        """With insufficient data, should return fallback."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=64, k_start=1, k_end=10)
+        z_pred = torch.randn(1, 64)
+        z_target = torch.randn(1, 64)
+        k_star, info = jawp.detect_workspace_dimension(z_pred, z_target)
+        assert info['method'] == 'fallback'
+
     def test_future_loss_warmup(self):
         """Future loss weight should ramp from 0 to lambda_future."""
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
