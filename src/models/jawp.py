@@ -1054,7 +1054,7 @@ class JAWPModule(nn.Module):
         log_det = eigenvalues.log().sum()
 
         # Barrier: -log det (we want to MAXIMIZE log det = MINIMIZE -log det)
-        return -log_det
+        return -log_det.squeeze()  # Ensure scalar output
 
     def extra_repr(self):
         return (f'embed_dim={self.embed_dim}, k_start={self.k_start}, '
