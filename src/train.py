@@ -83,6 +83,10 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
         state['decoder'] = model.decoder.state_dict()
         if hasattr(model, 'target_centering'):
             state['target_centering_center'] = model.target_centering.center.clone()
+        # JAWP workspace Q — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'jawp') and model.jawp is not None:
+            state['jawp_workspace_Q'] = model.jawp.workspace_Q.data.clone()
+            state['jawp_active_k'] = model.jawp.active_k.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -125,6 +129,11 @@ def load_checkpoint(path, model, optimizer, scaler,
             model.decoder.load_state_dict(checkpoint['decoder'])
             if 'target_centering_center' in checkpoint and hasattr(model, 'target_centering'):
                 model.target_centering.center.copy_(checkpoint['target_centering_center'])
+            # JAWP workspace Q restoration
+            if 'jawp_workspace_Q' in checkpoint and hasattr(model, 'jawp') and model.jawp is not None:
+                model.jawp.workspace_Q.data.copy_(checkpoint['jawp_workspace_Q'])
+            if 'jawp_active_k' in checkpoint and hasattr(model, 'jawp') and model.jawp is not None:
+                model.jawp.active_k.copy_(checkpoint['jawp_active_k'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])
@@ -540,6 +549,12 @@ def main(args):
                     optimizer.step()
                 optimizer.zero_grad()
 
+                # JAWP Stiefel manifold retraction — MUST be called
+                # after every optimizer.step() to keep Q orthonormal.
+                # Ref: Absil, Mahony & Sepulchre (2008), §4.1.
+                if model_name == 'text_span_jepa' and hasattr(model, 'jawp') and model.jawp is not None:
+                    model.jawp.stiefel_retract()
+
             # EMA update
             if ema_scheduler is not None:
                 tau = ema_scheduler.step()
@@ -577,7 +592,17 @@ def main(args):
                         f'eff_rank={diag_dict.get("effective_rank_online",0):.1f} '
                         f'collapsed={diag_dict.get("collapsed_dim_ratio_online",0):.3f} '
                         f'mask_frac={diag_dict.get("mask_fraction",0):.2f} '
-                        f'target_center_norm={diag_dict.get("target_center_norm",0):.2f}')
+                        f'target_center_norm={diag_dict.get("target_center_norm",0):.2f} '
+                        f'ws_quality={diag_dict.get("workspace_quality",0):.3f}')
+                    # JAWP-specific diagnostics
+                    if 'jawk_k' in loss_dict:
+                        logger.info(
+                            f'[{epoch+1}, {itr:5d}] jawp: '
+                            f'k={loss_dict.get("jawk_k",0)} '
+                            f'ws_util={loss_dict.get("jawk_workspace_utilization",0):.3f} '
+                            f'ws_cos={loss_dict.get("jawk_workspace_cosine",0):.3f} '
+                            f'ortho={loss_dict.get("jawk_ortho_score",0):.3f} '
+                            f'pca_align={loss_dict.get("jawk_pca_alignment",0):.3f}')
 
                 # CSV logging
                 csv_logger.log(

@@ -1,36 +1,29 @@
-# Text-Span JEPA defaults
-# All configs inherit from these values — override in per-experiment YAML files
-# Structure follows NextLat (Microsoft Research, 2025)
-
-seed: 42
-
+# Scaling: small (~100M params) — standard experiment
 meta:
+  seed: 42
   use_bfloat16: true
+  model_name: text_span_jepa_small
   load_checkpoint: false
-  read_checkpoint: null
-  model_name: text_span_jepa
-
+  dataset: wikitext103
 data:
-  batch_size: 64
+  batch_size: 128
   max_seq_len: 512
   tokenizer: gpt2
-  num_workers: 2
+  num_workers: 4
   root_path: data/wikitext-103
   mask_ratio: 0.35
   span_length_range: [3, 10]
-
 model:
-  embed_dim: 768
-  encoder_depth: 12
-  num_heads: 12
+  embed_dim: 640
+  encoder_depth: 10
+  num_heads: 10
   mlp_ratio: 4.0
   qkv_bias: true
   drop_rate: 0.0
   attn_drop_rate: 0.0
   drop_path_rate: 0.1
-  gradient_checkpointing: false
-  predictor_embed_dim: 384
-  predictor_depth: 6
+  predictor_embed_dim: 320
+  predictor_depth: 4
   future_offsets: [1, 4, 16]
   num_refine_steps: 3
   refine_step_size: 0.1
@@ -39,7 +32,6 @@ model:
   centering_momentum: 0.9
   ema_tau_start: 0.996
   ema_tau_end: 1.0
-  ema_schedule: cosine
   lambda_span: 1.0
   lambda_future: 0.5
   lambda_decoder: 0.1
@@ -48,25 +40,16 @@ model:
   mask_ratio_start: 0.15
   mask_ratio_end: 0.35
   future_warmup_steps: 5000
-  # JAWP: Jacobian-Aligned Workspace Prediction (novel mechanism)
   use_jawp: true
   jawk_k_start: 1
   jawk_k_end: null
   jawk_curriculum_steps: 10000
   jawk_alpha: 0.1
   jawk_init: identity
-  # SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA, 2025)
   lambda_sigreg: 0.0
-  sigreg_n_sketches: 64
-  sigreg_n_integration_points: 17
-  sigreg_sigma: 1.0
-  # J-Space: Workspace metrics (Anthropic, 2026)
-  jspace_variance_threshold: 0.10
-  jspace_k_workspace: 25
-
 optimization:
   ema: [0.996, 1.0]
-  epochs: 50
+  epochs: 30
   ipe_scale: 1.0
   lr: 0.001
   start_lr: 0.0002
@@ -74,9 +57,8 @@ optimization:
   warmup: 10
   weight_decay: 0.04
   final_weight_decay: 0.4
-  grad_accum_steps: 1
-
+  grad_accum_steps: 4
 logging:
-  folder: output/
+  folder: output/scaling/small-100m/
   log_freq: 10
-  write_tag: text_span_jepa
+  write_tag: scaling_small_100m

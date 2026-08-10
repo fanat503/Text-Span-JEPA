@@ -1001,3 +1001,73 @@ class CollapseDiagnostics(nn.Module):
             return max(min(val, 1.0), 0.0)
         except Exception:
             return 0.0
+
+    # ═══════════════════════════════════════════════════════════════
+    #  workspace_quality composite metric
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def workspace_quality(metrics: dict) -> float:
+        """Composite workspace quality score from diagnostic metrics.
+
+        Aggregates collapse prevention, spectral structure, and
+        representation alignment into a single scalar in [0, 1].
+
+        Components (weighted sum + geometric mean bonus):
+          1. Anti-collapse: 1 - collapsed_dim_ratio_online  (w=0.20)
+          2. Spectral health: sv_entropy_online              (w=0.15)
+          3. Rank utilization: rank_utilization_online       (w=0.15)
+          4. Alignment: 1 - alignment (normalized)           (w=0.15)
+          5. Uniformity: exp(uniformity) bounded             (w=0.10)
+          6. CKA: cka_linear                                  (w=0.10)
+          7. SVCCA: svcca_online_target                      (w=0.10)
+          8. Alpha norm: bounded alpha_norm                   (w=0.05)
+
+        Geometric mean bonus: 0.1 * (prod of all components)^{1/8}
+        Encourages all components to be non-zero simultaneously.
+
+        Returns:
+            float in [0, 1]. Higher = healthier workspace.
+            0.0 if any computation fails.
+        """
+        try:
+            def _get(key, default=0.0, lo=0.0, hi=1.0):
+                v = metrics.get(key, default)
+                if not isinstance(v, (int, float)) or not math.isfinite(v):
+                    v = default
+                return max(lo, min(hi, v))
+
+            anti_collapse = 1.0 - _get('collapsed_dim_ratio_online', 1.0)
+            spectral = _get('sv_entropy_online')
+            rank_util = _get('rank_utilization_online')
+            # alignment: lower is better, normalize to [0, 1]
+            align_raw = _get('alignment', default=10.0, lo=0.0, hi=100.0)
+            alignment = 1.0 / (1.0 + align_raw)
+            uniformity_raw = _get('uniformity_online', default=-10.0, lo=-100.0, hi=0.0)
+            uniformity = math.exp(max(uniformity_raw, -20.0))
+            cka = _get('cka_linear')
+            svcca = _get('svcca_online_target')
+            # alpha_norm: healthy is 0.5-3.0, normalize
+            alpha_raw = _get('alpha_norm_online', default=0.0, lo=0.0, hi=10.0)
+            alpha_norm = math.exp(-0.5 * (alpha_raw - 1.5) ** 2)
+
+            weights = [0.20, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10, 0.05]
+            components = [anti_collapse, spectral, rank_util, alignment,
+                          uniformity, cka, svcca, alpha_norm]
+
+            weighted_sum = sum(w * c for w, c in zip(weights, components))
+
+            # Geometric mean bonus
+            product = 1.0
+            for c in components:
+                product *= max(c, 1e-10)
+            geo_mean = product ** (1.0 / len(components))
+            bonus = 0.1 * geo_mean
+
+            score = weighted_sum + bonus
+            score = max(0.0, min(1.0, score))
+            if not math.isfinite(score):
+                return 0.0
+            return score
+        except Exception:
+            return 0.0
