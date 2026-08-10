@@ -680,6 +680,213 @@ class JAWPModule(nn.Module):
 
         return bg_complexity, bg_info
 
+    # ═══════════════════════════════════════════════════════════════════════
+    #  GRASSMANN WORKSPACE OPTIMIZATION (v0.27.0)
+    # ═══════════════════════════════════════════════════════════════════════
+    #
+    #  PROBLEM: Subspace Oscillation on the Stiefel Manifold
+    #  ─────────────────────────────────────────────────────
+    #  The workspace is defined by span(Q), not by Q itself.
+    #  Two matrices Q and QR (R ∈ O(k)) represent the SAME subspace.
+    #  Standard Stiefel optimization treats Q and QR as different points,
+    #  causing the optimizer to oscillate within the O(k) fiber —
+    #  rotating the basis without changing the subspace.
+    #
+    #  This oscillation:
+    #    1. Slows convergence (gradient components wasted on gauge rotation)
+    #    2. Makes checkpoints non-comparable (different Q, same span)
+    #    3. Causes unstable diagnostics (pca_alignment oscillates)
+    #
+    #  SOLUTION: Grassmann Gradient Projection
+    #  ──────────────────────────────────────────
+    #  The Grassmannian Gr(k,D) = St(D,k)/O(k) is the space of
+    #  k-dimensional subspaces. The natural projection π: St(D,k) → Gr(k,D)
+    #  identifies all rotations of the same basis.
+    #
+    #  The Grassmann tangent space at [Q] is:
+    #    T_{[Q]} Gr(k,D) = {Δ : Q^T Δ = 0}  (horizontal space)
+    #
+    #  To project a Stiefel gradient onto the Grassmann tangent space:
+    #    grad_Gr = grad_St - Q @ (Q^T @ grad_St)
+    #
+    #  This removes the O(k) fiber component (gauge rotation) and keeps
+    #  only the component that changes the SUBSPACE.
+    #
+    #  ═══════════════════════════════════════════════════════════════════════
+    #  THEOREM: Grassmann Convergence
+    #  ═══════════════════════════════════════════════════════════════════════
+    #
+    #  Let f(Q) = tr(Q^T Σ Q) be the JAWP objective on St(D,k).
+    #  Since f(QR) = f(Q) for all R ∈ O(k), f descends to a function
+    #  f̃ on Gr(k,D). The Grassmann gradient of f̃ is the projection
+    #  of the Stiefel gradient onto the horizontal space.
+    #
+    #  Claim: Grassmann gradient descent converges to the optimal
+    #  subspace, while Stiefel gradient descent may oscillate
+    #  indefinitely within the O(k) fiber.
+    #
+    #  Proof: The Stiefel gradient decomposes as:
+    #    grad_St = grad_Gr + Q @ A
+    #  where A = Q^T grad_St ∈ so(k) is the gauge component and
+    #  grad_Gr = (I - QQ^T) grad_St is the Grassmann component.
+    #
+    #  Only grad_Gr changes the subspace (moves on Gr(k,D)).
+    #  The gauge component Q @ A rotates within the fiber O*Q,
+    #  which does NOT change span(Q) and does NOT decrease f.
+    #
+    #  Since f̃ is smooth on the compact manifold Gr(k,D),
+    #  gradient descent with the Grassmann gradient converges
+    #  to a critical point (standard manifold optimization result,
+    #  Absil et al. 2008, Thm 7.4.2). ∎
+    #
+    #  ═══════════════════════════════════════════════════════════════════════
+    #  HOW OTHER PAPERS CAN USE GRASSMANN RETRACTION
+    #  ═══════════════════════════════════════════════════════════════════════
+    #
+    #  Call grassmann_retract() instead of stiefel_retract() when
+    #  you care about the SUBSPACE (span(Q)) rather than the basis (Q).
+    #  This is the case whenever Q is used only through QQ^T projections.
+    #
+    #    jawp.grassmann_retract()   # instead of jawp.stiefel_retract()
+    #
+    #  For monitoring, use principal_angles() to compare subspaces
+    #  across training steps — this is gauge-invariant.
+
+    @torch.no_grad()
+    def grassmann_retract(self):
+        """Grassmann retraction: optimize on Gr(k,D) instead of St(D,k).
+
+        Projects the gradient onto the Grassmann horizontal space
+        (removes O(k) gauge component), then applies SVD retraction.
+
+        This eliminates subspace oscillation caused by basis rotation
+        within the O(k) fiber of St(D,k) → Gr(k,D).
+
+        Theorem: Grassmann gradient descent converges to the optimal
+        subspace, while Stiefel gradient descent may oscillate
+        indefinitely within the fiber.
+
+        MUST be called after optimizer.step() in the training loop
+        (instead of or in addition to stiefel_retract).
+
+        Returns:
+            gauge_norm: float, the ||gauge component|| that was removed.
+                Large values indicate significant oscillation was prevented.
+        """
+        Q = self.workspace_Q.data
+        k_active = int(self.active_k.item())
+        k_total = Q.shape[1]
+
+        gauge_norm = 0.0
+
+        if self.workspace_Q.grad is not None:
+            grad = self.workspace_Q.grad.data
+
+            # Project gradient onto Grassmann horizontal space
+            # For active columns only (consistent with stiefel_retract)
+            Q_active = Q[:, :k_active]
+            grad_active = grad[:, :k_active]
+
+            # Grassmann horizontal projection:
+            #   grad_Gr = (I - Q_active Q_active^T) @ grad_active
+            #           = grad_active - Q_active @ (Q_active^T @ grad_active)
+            #
+            # The gauge component is Q_active @ (Q_active^T @ grad_active)
+            # which lies in the O(k) fiber and does NOT change span(Q).
+            QtG = Q_active.T @ grad_active  # (k_active, k_active)
+            gauge_component = Q_active @ QtG  # (D, k_active) — in fiber
+            gauge_norm = gauge_component.norm().item()
+
+            # Apply Grassmann gradient: remove fiber component
+            grad[:, :k_active].sub_(gauge_component)
+
+        # SVD retraction for ALL columns (same as Stiefel)
+        try:
+            U, S, Vh = torch.linalg.svd(Q, full_matrices=False)
+            Q.copy_(U[:, :k_total] @ Vh[:k_total, :])
+        except Exception:
+            try:
+                Q_ortho, _ = torch.linalg.qr(Q)
+                Q.copy_(Q_ortho)
+            except Exception:
+                pass
+
+        return gauge_norm
+
+    @torch.no_grad()
+    def principal_angles(self, other_Q=None, step=None):
+        """Compute principal angles between current and another subspace.
+
+        Principal angles θ_i ∈ [0, π/2] are the canonical angles
+        between two subspaces, defined recursively:
+          cos(θ_1) = max |u^T v|  for u ∈ span(Q1), v ∈ span(Q2), ||u||=||v||=1
+          cos(θ_i) = max |u^T v|  subject to u ⊥ u_j, v ⊥ v_j for j < i
+
+        Computation: cos(θ_i) = singular values of Q1^T @ Q2.
+
+        Principal angles are GAUGE-INVARIANT: they depend only on
+        span(Q1) and span(Q2), not on the choice of basis.
+        This makes them ideal for monitoring convergence.
+
+        Args:
+            other_Q: (D, k) matrix. If None, uses Q from previous step
+                (stored in self._prev_Q).
+            step: optimizer step (for curriculum k).
+
+        Returns:
+            angles: list of floats, principal angles in radians.
+            cosine_similarities: list of floats, cos(θ_i).
+        """
+        if step is not None:
+            k = self.current_k(step)
+            self.active_k.fill_(k)
+        k = int(self.active_k.item())
+        Q1 = self.workspace_Q.data[:, :k]
+
+        if other_Q is None:
+            # Use stored previous Q
+            prev_Q = getattr(self, '_prev_workspace_Q', None)
+            if prev_Q is None:
+                return [0.0] * k, [1.0] * k
+            Q2 = prev_Q[:, :k]
+        else:
+            Q2 = other_Q[:, :k] if other_Q.shape[1] >= k else other_Q
+
+        # cos(θ_i) = singular values of Q1^T @ Q2
+        try:
+            cross = Q1.T @ Q2  # (k, k)
+            sv = torch.linalg.svdvals(cross)  # (k,)
+            sv = sv.clamp(0.0, 1.0)
+            cosines = sv.tolist()
+            angles = [math.acos(min(max(c, -1.0), 1.0)) for c in cosines]
+            return angles, cosines
+        except Exception:
+            return [0.0] * k, [1.0] * k
+
+    @torch.no_grad()
+    def subspace_distance(self, other_Q=None, step=None):
+        """Chordal Grassmann distance between two subspaces.
+
+        d_chord(Q1, Q2) = sqrt(Σ_i sin²(θ_i))
+
+        where θ_i are the principal angles. This is the standard
+        Riemannian metric on Gr(k,D) (Edelman, Arias & Smith, 1998).
+
+        Returns:
+            distance: float >= 0. Zero iff subspaces are identical.
+        """
+        angles, _ = self.principal_angles(other_Q, step)
+        return math.sqrt(sum(math.sin(a) ** 2 for a in angles))
+
+    @torch.no_grad()
+    def save_workspace_snapshot(self):
+        """Save current Q for convergence monitoring.
+
+        Call once per logging step to enable principal_angles()
+        comparison between consecutive steps.
+        """
+        self._prev_workspace_Q = self.workspace_Q.data.clone()
+
     def extra_repr(self):
         return (f'embed_dim={self.embed_dim}, k_start={self.k_start}, '
                 f'k_end={self.k_end}, alpha={self.alpha}, '

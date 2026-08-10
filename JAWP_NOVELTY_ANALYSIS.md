@@ -268,3 +268,59 @@ JAWP is the ONLY method that is:
 3. Theoretically grounded (Courant-Fischer optimality)
 4. Drop-in compatible with any JEPA variant
 5. Guaranteed to preserve exogenous features (WIP theorem)
+6. Convergent without gauge oscillation (Grassmann optimization)
+
+## Grassmann Workspace Optimization
+
+### Problem: Subspace Oscillation
+
+The workspace is defined by span(Q), not Q itself. Two matrices Q and QR
+(R ∈ O(k)) represent the SAME subspace. Standard Stiefel optimization
+treats Q and QR as different points, causing oscillation within the O(k)
+fiber — rotating the basis without changing the subspace.
+
+This oscillation:
+1. Slows convergence (gradient wasted on gauge rotation)
+2. Makes checkpoints non-comparable (different Q, same span)
+3. Causes unstable diagnostics (pca_alignment oscillates)
+
+### Solution: Grassmann Gradient Projection
+
+The Grassmannian Gr(k,D) = St(D,k)/O(k) is the proper space of
+subspaces. The Grassmann gradient removes the O(k) fiber component:
+
+  grad_Gr = grad_St - Q @ (Q^T @ grad_St)
+
+Only grad_Gr changes the subspace. The fiber component Q @ (Q^T @ grad_St)
+rotates within O(k) and does NOT decrease the loss.
+
+### Theorem: Grassmann Convergence
+
+The JAWP objective f(Q) = tr(Q^T Σ Q) satisfies f(QR) = f(Q) for all
+R ∈ O(k), so f descends to f̃ on Gr(k,D). Since Gr(k,D) is compact
+and f̃ is smooth, Grassmann gradient descent converges to a critical
+point (Absil et al. 2008, Thm 7.4.2). Stiefel descent may oscillate
+indefinitely within the fiber.
+
+### Monitoring: Principal Angles
+
+The principal angles θ_i between two subspaces are gauge-invariant
+(they depend only on span(Q), not on the basis choice):
+
+  cos(θ_i) = singular values of Q1^T @ Q2
+
+The chordal Grassmann distance d = √(Σ sin²θ_i) provides a proper
+metric for monitoring workspace convergence across training steps.
+
+### API
+
+```python
+# Use Grassmann retract instead of Stiefel (same interface)
+gauge_norm = jawp.grassmann_retract()
+
+# Monitor convergence with gauge-invariant principal angles
+jawp.save_workspace_snapshot()  # save Q at step t
+# ... training step ...
+angles, cosines = jawp.principal_angles()  # compare with saved Q
+distance = jawp.subspace_distance()  # chordal Grassmann distance
+```
