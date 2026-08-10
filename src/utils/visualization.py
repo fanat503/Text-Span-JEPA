@@ -1,0 +1,598 @@
+# Copyright 2026 Text-Span JEPA Authors
+# Licensed under the Apache License, Version 2.0
+#
+# Visualization utilities for NeurIPS paper figures and training diagnostics.
+# All plots use matplotlib with a clean academic style — no emojis, no clutter.
+# Designed for inline notebook use AND standalone PNG/PDF export.
+
+import os
+import math
+import logging
+from typing import Optional, Dict, List, Tuple, Sequence
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Lazy import — matplotlib is optional (headless servers)
+_mpl = None
+_plt = None
+_ScalarMappable = None
+
+
+def _ensure_mpl():
+    global _mpl, _plt, _ScalarMappable
+    if _mpl is not None:
+        return True
+    try:
+        import matplotlib
+        matplotlib.use('Agg')  # headless safe
+        import matplotlib.pyplot as plt
+        from matplotlib.cm import ScalarMappable
+        _mpl = matplotlib
+        _plt = plt
+        _ScalarMappable = ScalarMappable
+        return True
+    except ImportError:
+        logger.warning('matplotlib not available — visualization disabled')
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Academic plot style
+# ═══════════════════════════════════════════════════════════════════
+
+def setup_style():
+    """Apply clean academic style — NeurIPS camera-ready compatible."""
+    if not _ensure_mpl():
+        return
+    _plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif'],
+        'font.size': 10,
+        'axes.labelsize': 11,
+        'axes.titlesize': 12,
+        'xtick.labelsize': 9,
+        'ytick.labelsize': 9,
+        'legend.fontsize': 9,
+        'figure.dpi': 150,
+        'savefig.dpi': 300,
+        'savefig.bbox': 'tight',
+        'axes.spines.top': False,
+        'axes.spines.right': False,
+        'lines.linewidth': 1.5,
+        'lines.markersize': 4,
+    })
+
+
+setup_style()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Eigenvalue spectrum
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_eigenvalue_spectrum(
+    eigenvalues: np.ndarray,
+    title: str = 'Eigenvalue Spectrum',
+    highlight_k: Optional[int] = None,
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot eigenvalue spectrum with optional workspace dimension highlight.
+
+    Args:
+        eigenvalues: 1-D array of eigenvalues in descending order.
+        title: plot title.
+        highlight_k: if set, shade the first k eigenvalues (workspace).
+        save_path: if set, save figure to this path.
+        ax: existing axes to draw on.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(6, 3.5))
+    else:
+        fig = ax.figure
+
+    x = np.arange(len(eigenvalues))
+    ax.semilogy(x, eigenvalues, color='#2166ac', marker='o', markersize=2,
+                label='eigenvalues')
+
+    if highlight_k is not None and 0 < highlight_k < len(eigenvalues):
+        ax.axvline(highlight_k - 0.5, color='#b2182b', linestyle='--',
+                   linewidth=1, label=f'k={highlight_k} (workspace)')
+        ax.fill_between(x[:highlight_k], 1e-10, eigenvalues[:highlight_k],
+                        alpha=0.15, color='#b2182b')
+
+    ax.set_xlabel('Index')
+    ax.set_ylabel('Eigenvalue (log scale)')
+    ax.set_title(title)
+    ax.legend(loc='upper right')
+    ax.set_ylim(bottom=max(eigenvalues.min() * 0.1, 1e-10))
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CKA heatmap
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_cka_heatmap(
+    cka_matrix: np.ndarray,
+    layer_names: Optional[List[str]] = None,
+    title: str = 'CKA Similarity',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot CKA (Centered Kernel Alignment) heatmap between layers.
+
+    Args:
+        cka_matrix: (L, L) symmetric matrix of CKA scores.
+        layer_names: labels for axes.
+        title: plot title.
+        save_path: save path.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(5, 4.5))
+    else:
+        fig = ax.figure
+
+    im = ax.imshow(cka_matrix, cmap='Blues', vmin=0, vmax=1, aspect='equal')
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    if layer_names is not None:
+        n = min(len(layer_names), cka_matrix.shape[0])
+        ax.set_xticks(range(n))
+        ax.set_yticks(range(n))
+        ax.set_xticklabels(layer_names[:n], rotation=45, ha='right', fontsize=7)
+        ax.set_yticklabels(layer_names[:n], fontsize=7)
+
+    ax.set_title(title)
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SVCCA curve
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_svcca_curve(
+    svcca_scores: np.ndarray,
+    title: str = 'SVCCA',
+    threshold: float = 0.99,
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot SVCCA singular values with cumulative threshold.
+
+    Args:
+        svcca_scores: 1-D array of SVCCA singular values (0 to 1).
+        title: plot title.
+        threshold: cumulative threshold line.
+        save_path: save path.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(5, 3))
+    else:
+        fig = ax.figure
+
+    x = np.arange(len(svcca_scores))
+    ax.bar(x, svcca_scores, color='#4393c3', alpha=0.7, label='SVCCA')
+
+    cumsum = np.cumsum(svcca_scores) / svcca_scores.sum()
+    ax2 = ax.twinx()
+    ax2.plot(x, cumsum, color='#d6604d', linewidth=1.5, label='cumulative')
+    ax2.axhline(threshold, color='#d6604d', linestyle=':', alpha=0.5)
+    ax2.set_ylabel('Cumulative fraction')
+    ax2.set_ylim(0, 1.05)
+
+    ax.set_xlabel('Singular value index')
+    ax.set_ylabel('SVCCA score')
+    ax.set_title(title)
+
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, loc='center right')
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PCA / t-SNE
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_representation_2d(
+    embeddings: np.ndarray,
+    labels: Optional[np.ndarray] = None,
+    method: str = 'pca',
+    title: Optional[str] = None,
+    save_path: Optional[str] = None,
+    ax=None,
+    n_components: int = 2,
+    perplexity: int = 30,
+):
+    """2-D projection of embeddings via PCA or t-SNE.
+
+    Args:
+        embeddings: (N, D) array.
+        labels: (N,) optional integer labels for coloring.
+        method: 'pca' or 'tsne'.
+        title: override title.
+        save_path: save path.
+        ax: existing axes.
+        n_components: dimensions for projection.
+        perplexity: t-SNE perplexity.
+    """
+    if not _ensure_mpl():
+        return
+
+    if method == 'tsne':
+        try:
+            from sklearn.manifold import TSNE
+            reducer = TSNE(n_components=n_components, perplexity=perplexity,
+                           random_state=42)
+            projected = reducer.fit_transform(embeddings)
+        except ImportError:
+            logger.warning('sklearn not available, falling back to PCA')
+            method = 'pca'
+
+    if method == 'pca':
+        centered = embeddings - embeddings.mean(axis=0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        projected = U[:, :n_components] * S[:n_components]
+
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(5, 5))
+    else:
+        fig = ax.figure
+
+    if labels is not None:
+        unique_labels = np.unique(labels)
+        cmap = _plt.get_cmap('tab10', len(unique_labels))
+        for i, lbl in enumerate(unique_labels):
+            mask = labels == lbl
+            ax.scatter(projected[mask, 0], projected[mask, 1],
+                       c=[cmap(i)], s=8, alpha=0.6, label=str(lbl))
+        ax.legend(markerscale=2, fontsize=7, loc='best')
+    else:
+        ax.scatter(projected[:, 0], projected[:, 1], s=5, alpha=0.4,
+                   c='#2166ac')
+
+    ax.set_xlabel(f'{method.upper()} 1')
+    ax.set_ylabel(f'{method.upper()} 2')
+    ax.set_title(title or f'{method.upper()} Projection')
+    ax.set_aspect('equal', 'datalim')
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Stacked loss components
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_stacked_losses(
+    loss_history: Dict[str, List[float]],
+    title: str = 'Training Loss Components',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Stacked area plot of loss components over training steps.
+
+    Args:
+        loss_history: dict mapping loss name to list of values per step.
+            Must include at least one key.
+        title: plot title.
+        save_path: save path.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(7, 3.5))
+    else:
+        fig = ax.figure
+
+    keys = sorted(loss_history.keys())
+    if not keys:
+        return fig, ax
+
+    steps = np.arange(len(loss_history[keys[0]]))
+    values = np.array([loss_history[k] for k in keys])
+    # Clamp negatives for stacking
+    values = np.maximum(values, 0)
+
+    colors = _plt.get_cmap('Set2', len(keys))
+    ax.stackplot(steps, values, labels=keys,
+                 colors=[colors(i) for i in range(len(keys))],
+                 alpha=0.8)
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Loss')
+    ax.set_title(title)
+    ax.legend(loc='upper right', fontsize=7)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Workspace utilization over training
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_workspace_evolution(
+    steps: Sequence[int],
+    workspace_util: Sequence[float],
+    target_ws_fraction: Sequence[float],
+    k_values: Sequence[int],
+    title: str = 'JAWP Workspace Evolution',
+    save_path: Optional[str] = None,
+):
+    """Plot workspace metrics over training — workspace utilization, target
+    fraction, and active dimension k.
+
+    Three subplots stacked vertically.
+    """
+    if not _ensure_mpl():
+        return
+    fig, axes = _plt.subplots(3, 1, figsize=(7, 6), sharex=True)
+
+    axes[0].plot(steps, workspace_util, color='#2166ac')
+    axes[0].set_ylabel('Workspace utilization')
+    axes[0].set_ylim(0, 1)
+
+    axes[1].plot(steps, target_ws_fraction, color='#b2182b')
+    axes[1].set_ylabel('Target ws fraction')
+    axes[1].set_ylim(0, 1)
+
+    axes[2].plot(steps, k_values, color='#4393c3')
+    axes[2].set_ylabel('Active k')
+    axes[2].set_xlabel('Step')
+
+    fig.suptitle(title)
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, axes
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Collapse diagnostics timeline
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_collapse_timeline(
+    steps: Sequence[int],
+    effective_rank: Sequence[float],
+    collapsed_dim_ratio: Sequence[float],
+    embedding_std: Sequence[float],
+    title: str = 'Collapse Diagnostics',
+    save_path: Optional[str] = None,
+):
+    """Plot collapse prevention metrics over training.
+
+    Three subplots: effective rank, collapsed dim ratio, embedding std.
+    """
+    if not _ensure_mpl():
+        return
+    fig, axes = _plt.subplots(3, 1, figsize=(7, 6), sharex=True)
+
+    axes[0].plot(steps, effective_rank, color='#2166ac')
+    axes[0].set_ylabel('Effective rank')
+
+    axes[1].plot(steps, collapsed_dim_ratio, color='#b2182b')
+    axes[1].set_ylabel('Collapsed dim ratio')
+    axes[1].set_ylim(0, 1)
+
+    axes[2].plot(steps, embedding_std, color='#4393c3')
+    axes[2].set_ylabel('Embedding std/dim')
+    axes[2].set_xlabel('Step')
+
+    fig.suptitle(title)
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, axes
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Scaling curve
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_scaling_curve(
+    param_counts: Sequence[float],
+    metrics: Dict[str, Sequence[float]],
+    title: str = 'Scaling Behavior',
+    x_label: str = 'Parameters (M)',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Log-log scaling plot — metric vs parameter count.
+
+    Args:
+        param_counts: parameter counts (in millions).
+        metrics: dict of metric_name -> values.
+        title: plot title.
+        x_label: x-axis label.
+        save_path: save path.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(5, 4))
+    else:
+        fig = ax.figure
+
+    colors = ['#2166ac', '#b2182b', '#4393c3', '#d6604d', '#762a83']
+    for i, (name, values) in enumerate(metrics.items()):
+        ax.loglog(param_counts, values, marker='o', color=colors[i % len(colors)],
+                  label=name)
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel('Metric value')
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.grid(True, which='both', alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  JAWP risk vs PCA risk
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_jawp_vs_pca(
+    steps: Sequence[int],
+    jawp_risk: Sequence[float],
+    pca_risk: Sequence[float],
+    title: str = 'JAWP Risk vs PCA Risk',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot JAWP workspace prediction risk vs PCA baseline risk over time.
+
+    The Corollary guarantees jawp_risk <= pca_risk.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(6, 3.5))
+    else:
+        fig = ax.figure
+
+    ax.plot(steps, jawp_risk, color='#2166ac', label='JAWP risk')
+    ax.plot(steps, pca_risk, color='#b2182b', label='PCA risk', linestyle='--')
+    ax.fill_between(steps, jawp_risk, pca_risk,
+                    where=[j <= p for j, p in zip(jawp_risk, pca_risk)],
+                    alpha=0.15, color='#2166ac', label='Corollary gap')
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Prediction risk')
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Multi-panel dashboard
+# ═══════════════════════════════════════════════════════════════════
+
+def create_training_dashboard(
+    log_dir: str,
+    output_path: Optional[str] = None,
+):
+    """Create a multi-panel training dashboard from CSV logs.
+
+    Reads the CSV log file produced by CSVLogger and generates
+    a 2x3 grid of key plots.
+
+    Args:
+        log_dir: directory containing log.csv.
+        output_path: if set, save dashboard to this path.
+    """
+    if not _ensure_mpl():
+        return
+
+    csv_path = os.path.join(log_dir, 'log.csv')
+    if not os.path.exists(csv_path):
+        logger.warning(f'No log.csv found in {log_dir}')
+        return
+
+    try:
+        data = np.genfromtxt(csv_path, delimiter=',', names=True)
+    except Exception as e:
+        logger.warning(f'Could not read CSV: {e}')
+        return
+
+    fig, axes = _plt.subplots(2, 3, figsize=(14, 8))
+
+    names = list(data.dtype.names)
+
+    # Panel 1: total loss
+    if 'loss' in names:
+        axes[0, 0].plot(data['loss'], color='#2166ac')
+        axes[0, 0].set_title('Total Loss')
+        axes[0, 0].set_xlabel('Step')
+
+    # Panel 2: loss components
+    comp_names = [n for n in names if n.startswith('loss_')]
+    if comp_names:
+        for n in comp_names:
+            axes[0, 1].plot(data[n], label=n.replace('loss_', ''), alpha=0.7)
+        axes[0, 1].set_title('Loss Components')
+        axes[0, 1].legend(fontsize=6)
+        axes[0, 1].set_xlabel('Step')
+
+    # Panel 3: effective rank
+    rank_names = [n for n in names if 'rank' in n]
+    if rank_names:
+        for n in rank_names:
+            axes[0, 2].plot(data[n], label=n)
+        axes[0, 2].set_title('Effective Rank')
+        axes[0, 2].legend(fontsize=6)
+        axes[0, 2].set_xlabel('Step')
+
+    # Panel 4: collapsed dim ratio
+    coll_names = [n for n in names if 'collapsed' in n]
+    if coll_names:
+        for n in coll_names:
+            axes[1, 0].plot(data[n], label=n)
+        axes[1, 0].set_title('Collapsed Dim Ratio')
+        axes[1, 0].set_ylim(0, 1)
+        axes[1, 0].legend(fontsize=6)
+        axes[1, 0].set_xlabel('Step')
+
+    # Panel 5: learning rate
+    if 'lr' in names:
+        axes[1, 1].plot(data['lr'], color='#b2182b')
+        axes[1, 1].set_title('Learning Rate')
+        axes[1, 1].set_xlabel('Step')
+
+    # Panel 6: decoder accuracy
+    if 'dec_acc' in names:
+        axes[1, 2].plot(data['dec_acc'], color='#4393c3')
+        axes[1, 2].set_title('Decoder Accuracy')
+        axes[1, 2].set_ylim(0, 1)
+        axes[1, 2].set_xlabel('Step')
+
+    fig.suptitle('Text-Span JEPA Training Dashboard')
+    fig.tight_layout()
+
+    if output_path:
+        fig.savefig(output_path)
+    return fig, axes
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Save helper
+# ═══════════════════════════════════════════════════════════════════
+
+def save_figure(fig, path: str, formats: Tuple[str, ...] = ('png', 'pdf')):
+    """Save figure in multiple formats for NeurIPS submission.
+
+    NeurIPS requires PDF for camera-ready. PNG for preview.
+    """
+    base, ext = os.path.splitext(path)
+    for fmt in formats:
+        out_path = f'{base}.{fmt}'
+        fig.savefig(out_path, format=fmt, bbox_inches='tight', dpi=300)
+        logger.info(f'Saved: {out_path}')

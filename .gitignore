@@ -43,3 +43,13 @@ lightning_logs/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Patch files (generated, not source code)
+*.patch
+
+# Agent/analysis files (not source code)
+COMMIT_INSTRUCTIONS_*.md
+V0.*.md
+V0.*.txt
+FULL_MODEL_CODE_*.md
+AUDIT_REPORT_*.md

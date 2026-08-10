@@ -1,0 +1,64 @@
+# Scaling: xsmall (~30M params) — fast ablation runs
+meta:
+  seed: 42
+  use_bfloat16: true
+  model_name: text_span_jepa_xsmall
+  load_checkpoint: false
+  dataset: wikitext103
+data:
+  batch_size: 256
+  max_seq_len: 512
+  tokenizer: gpt2
+  num_workers: 4
+  root_path: data/wikitext-103
+  mask_ratio: 0.35
+  span_length_range: [3, 10]
+model:
+  embed_dim: 384
+  encoder_depth: 6
+  num_heads: 6
+  mlp_ratio: 4.0
+  qkv_bias: true
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
+  drop_path_rate: 0.05
+  predictor_embed_dim: 192
+  predictor_depth: 3
+  future_offsets: [1, 4, 16]
+  num_refine_steps: 2
+  refine_step_size: 0.1
+  decoder_bias: false
+  variance_margin: 1.0
+  centering_momentum: 0.9
+  ema_tau_start: 0.996
+  ema_tau_end: 1.0
+  lambda_span: 1.0
+  lambda_future: 0.5
+  lambda_decoder: 0.1
+  lambda_variance: 0.1
+  lambda_covariance: 0.04
+  mask_ratio_start: 0.15
+  mask_ratio_end: 0.35
+  future_warmup_steps: 3000
+  use_jawp: true
+  jawk_k_start: 1
+  jawk_k_end: null
+  jawk_curriculum_steps: 5000
+  jawk_alpha: 0.1
+  jawk_init: identity
+  lambda_sigreg: 0.0
+optimization:
+  ema: [0.996, 1.0]
+  epochs: 30
+  ipe_scale: 1.0
+  lr: 0.001
+  start_lr: 0.0002
+  final_lr: 1.0e-5
+  warmup: 10
+  weight_decay: 0.04
+  final_weight_decay: 0.4
+  grad_accum_steps: 2
+logging:
+  folder: output/scaling/xsmall-30m/
+  log_freq: 10
+  write_tag: scaling_xsmall_30m

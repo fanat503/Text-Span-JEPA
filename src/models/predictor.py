@@ -234,3 +234,7 @@ class TextSpanJEPApredictor(nn.Module):
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters())
+
+# Backward-compatible alias
+TextSpanJPAPredictor = TextSpanJEPApredictor
+

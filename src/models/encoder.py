@@ -116,12 +116,14 @@ class TextSpanJEPLEncoder(nn.Module):
         drop_path_rate=0.,
         norm_layer=None,
         init_std=0.02,
+        gradient_checkpointing=False,
     ):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.init_std = init_std
 
+        self.gradient_checkpointing = gradient_checkpointing
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
 
         # Token + position embeddings
@@ -217,3 +219,7 @@ class TextSpanJEPLEncoder(nn.Module):
             x = blk(x)
             intermediates.append(x.clone())
         return intermediates
+
+# Backward-compatible alias
+TextSpanJEPAEncoder = TextSpanJEPLEncoder
+
