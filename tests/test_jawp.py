@@ -714,3 +714,75 @@ class TestGrassmannOptimization:
         # No gradient set
         gauge_norm = jawp.grassmann_retract()
         assert gauge_norm == 0.0
+
+
+class TestPredictiveRank:
+    """Tests for Predictive Rank Regularization.
+
+    Theorem: If λ_min(Q^T Cov Q) > ε, then rank(J_ws) = k.
+    Log-determinant barrier prevents rank collapse.
+    """
+
+    def test_compute_predictive_rank_full(self):
+        """Full-rank predictor gives effective_rank ≈ k."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        z_pred = torch.randn(64, 32)  # full rank
+        info = jawp.compute_predictive_rank(z_pred)
+        assert info['effective_rank'] > 2.0, f"Expected high effective rank, got {info['effective_rank']}"
+        assert 0.0 <= info['rank_utilization'] <= 1.0
+
+    def test_compute_predictive_rank_returns_valid(self):
+        """compute_predictive_rank returns valid dict."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        z_pred = torch.randn(16, 32)
+        info = jawp.compute_predictive_rank(z_pred)
+        assert 'effective_rank' in info
+        assert 'singular_values' in info
+        assert 'rank_utilization' in info
+        assert 'min_singular' in info
+        assert 'condition_number' in info
+
+    def test_predictive_rank_loss_full_rank(self):
+        """Log-det loss is finite for full-rank workspace covariance."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        z_pred = torch.randn(64, 32)
+        loss = jawp.predictive_rank_loss(z_pred)
+        assert math.isfinite(loss.item()), f"Loss should be finite, got {loss.item()}"
+
+    def test_predictive_rank_loss_differentiable(self):
+        """predictive_rank_loss is differentiable w.r.t. Q."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        z_pred = torch.randn(64, 32)
+        loss = jawp.predictive_rank_loss(z_pred)
+        loss.backward()
+        # Q should have gradients
+        assert jawp.workspace_Q.grad is not None
+        q_grad_norm = jawp.workspace_Q.grad.norm().item()
+        assert q_grad_norm > 0, "Q should receive gradients from rank loss"
+
+    def test_predictive_rank_loss_prevents_collapse(self):
+        """RankE loss increases as workspace covariance collapses."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        # Full rank: diverse predictions
+        z_full = torch.randn(64, 32)
+        loss_full = jawp.predictive_rank_loss(z_full)
+        # Collapsed: all predictions same direction
+        z_collapse = torch.randn(64, 1).expand(64, 32) * 0.1
+        loss_collapse = jawp.predictive_rank_loss(z_collapse)
+        # Collapsed should have HIGHER loss (more negative log-det)
+        assert loss_collapse.item() > loss_full.item(), \
+            f"Collapse loss {loss_collapse.item():.2f} should exceed full loss {loss_full.item():.2f}"
+
+    def test_rank_utilization_bounded(self):
+        """Rank utilization is always in [0, 1]."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        for _ in range(5):
+            z_pred = torch.randn(32, 32) * torch.rand(1).item()
+            info = jawp.compute_predictive_rank(z_pred)
+            assert 0.0 <= info['rank_utilization'] <= 1.0
