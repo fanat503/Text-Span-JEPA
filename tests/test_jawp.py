@@ -424,3 +424,130 @@ class TestJAWPWithJEPA:
             masked, original, mask, current_step=100, total_steps=1000)
         assert math.isfinite(total_loss.item())
         assert total_loss.item() > 0
+
+
+class TestWorkspaceInformationPreservation:
+    """Tests for the WIP theorem: workspace preserves exogenous features.
+
+    Theorem: If I(f_exo; z_target) > 0, then span(Q_JAWP) must contain
+    a non-trivial projection of f_exo. This directly mitigates the
+    Predictor Capacity Waste problem (Pendharkar et al., 2026).
+    """
+
+    def test_wip_score_perfect_when_features_in_workspace(self):
+        """If exogenous features lie entirely in workspace, WIP = 1.0."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=64, k_start=7, k_end=7, alpha=0.1)
+        Q = jawp.workspace_Q.data[:, :7]
+        features = Q.T
+        z_pred = torch.randn(16, 64)
+        z_target = torch.randn(16, 64)
+        wip_score, wip_info = jawp.workspace_information_preservation(
+            z_pred, z_target, features=features)
+        assert wip_score > 0.99, f"WIP should be ~1.0 for workspace features, got {wip_score}"
+
+    def test_wip_score_zero_when_features_orthogonal(self):
+        """If features are orthogonal to workspace, WIP approx 0.0."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=64, k_start=7, k_end=7, alpha=0.1)
+        Q = jawp.workspace_Q.data[:, :7]
+        rand_features = torch.randn(7, 64)
+        features = rand_features - (rand_features @ Q) @ Q.T
+        if features.norm() > 1e-6:
+            features = features / features.norm() * 7.0
+            z_pred = torch.randn(16, 64)
+            z_target = torch.randn(16, 64)
+            wip_score, wip_info = jawp.workspace_information_preservation(
+                z_pred, z_target, features=features)
+            assert wip_score < 0.01, f"WIP should be ~0.0 for orthogonal features, got {wip_score}"
+
+    def test_wip_score_bounded(self):
+        """WIP score is always in [0, 1]."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=64, k_start=3, k_end=7, alpha=0.1)
+        z_pred = torch.randn(16, 64)
+        z_target = torch.randn(16, 64)
+        wip_score, _ = jawp.workspace_information_preservation(z_pred, z_target)
+        assert 0.0 <= wip_score <= 1.0, f"WIP out of bounds: {wip_score}"
+
+    def test_wip_with_proxy_pca_features(self):
+        """WIP with proxy PCA features returns valid score."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=64, k_start=3, k_end=7, alpha=0.1)
+        z_pred = torch.randn(32, 64)
+        z_target = torch.randn(32, 64)
+        wip_score, wip_info = jawp.workspace_information_preservation(z_pred, z_target)
+        assert 0.0 <= wip_score <= 1.0
+        assert 'method' in wip_info
+        assert wip_info['method'] == 'wip_theorem'
+
+    def test_wip_theorem_contradiction_proof(self):
+        """Verify WIP theorem: excluding predictive feature increases loss."""
+        from src.models.jawp import JAWPModule
+        D, k = 32, 4
+        torch.manual_seed(42)
+        z_target = torch.randn(64, D)
+        z_target[:, :4] *= 5.0
+        z_pred = z_target.clone()
+        z_pred[:, 4:] = torch.randn(64, D - 4)
+
+        Q_good = torch.zeros(D, k)
+        Q_good[:k, :] = torch.eye(k)
+        jawp_good = JAWPModule(embed_dim=D, k_start=k, k_end=k)
+        jawp_good.workspace_Q.data.copy_(Q_good)
+        loss_good, _ = jawp_good.compute_loss(z_pred, z_target, step=1000)
+
+        Q_bad = torch.zeros(D, k)
+        Q_bad[D-k:, :] = torch.eye(k)
+        jawp_bad = JAWPModule(embed_dim=D, k_start=k, k_end=k)
+        jawp_bad.workspace_Q.data.copy_(Q_bad)
+        loss_bad, _ = jawp_bad.compute_loss(z_pred, z_target, step=1000)
+
+        assert loss_good.item() < loss_bad.item(),             f"WIP theorem violation: good_ws loss {loss_good.item():.4f} >= bad_ws loss {loss_bad.item():.4f}"
+
+    def test_wip_preserves_exogenous_features(self):
+        """Exogenous features with I(f; z_target) > 0 are preserved."""
+        from src.models.jawp import JAWPModule
+        D, k = 32, 4
+        torch.manual_seed(42)
+        f_exo = torch.zeros(1, D)
+        f_exo[0, 0] = 1.0
+        z_target = torch.randn(64, D)
+        z_target[:, 0] = torch.randn(64) * 3.0
+        z_pred = z_target + torch.randn(64, D) * 0.1
+
+        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k, init='identity')
+        wip_score, _ = jawp.workspace_information_preservation(
+            z_pred, z_target, features=f_exo)
+        assert wip_score > 0.5, f"Exogenous feature should be preserved, WIP={wip_score}"
+
+
+class TestBackgroundComplexity:
+    """Tests for background predictive complexity analysis."""
+
+    def test_background_complexity_high_for_good_split(self):
+        """Good workspace/background split has high background complexity."""
+        from src.models.jawp import JAWPModule
+        D, k = 32, 4
+        torch.manual_seed(42)
+        z_target = torch.randn(64, D)
+        z_target[:, :k] *= 5.0
+        z_pred = z_target.clone()
+        z_pred[:, k:] = torch.randn(64, D - k)
+
+        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k, init='identity')
+        bg_complexity, bg_info = jawp.compute_background_complexity(z_pred, z_target)
+        assert bg_complexity >= 1.0, f"Expected high bg complexity, got {bg_complexity}"
+
+    def test_background_complexity_returns_valid_dict(self):
+        """Background complexity returns proper info dict."""
+        from src.models.jawp import JAWPModule
+        jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
+        z_pred = torch.randn(16, 32)
+        z_target = torch.randn(16, 32)
+        bg_complexity, bg_info = jawp.compute_background_complexity(z_pred, z_target)
+        assert isinstance(bg_info, dict)
+        assert 'ws_residual' in bg_info
+        assert 'bg_residual' in bg_info
+        assert 'bg_complexity_ratio' in bg_info
+        assert bg_info['k'] == 4
