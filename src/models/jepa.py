@@ -284,7 +284,7 @@ class TextSpanJEPA(nn.Module):
         loss_variance = self.variance_reg(h_online)
         loss_covariance = self.covariance_reg(h_online)
 
-        lambda_sigreg = getattr(self.config, 'lambda_sigreg', 0.0)
+        lambda_sigreg = self.config.lambda_sigreg
         if lambda_sigreg > 0:
             loss_sigreg = self.sigreg(h_online)
         else:
