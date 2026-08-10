@@ -493,6 +493,124 @@ def plot_jawp_vs_pca(
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  CGN gating pattern
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_gating_pattern(
+    gate_values_visible: np.ndarray,
+    gate_values_masked: np.ndarray,
+    group_names: Optional[List[str]] = None,
+    title: str = 'CGN Gating Pattern',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot CGN gate values for visible vs masked positions.
+
+    Shows how the Contextual Gating Network routes information
+    differently at masked and visible positions — the key claim
+    of the Information Routing theorem.
+
+    Args:
+        gate_values_visible: 1-D array of gate values at visible positions (n_groups,).
+        gate_values_masked: 1-D array of gate values at masked positions (n_groups,).
+        group_names: optional labels for gate groups.
+        title: plot title.
+        save_path: save path.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(6, 3.5))
+    else:
+        fig = ax.figure
+
+    n = len(gate_values_visible)
+    x = np.arange(n)
+    width = 0.35
+
+    ax.bar(x - width/2, gate_values_visible, width,
+           color='#2166ac', label='Visible', alpha=0.8)
+    ax.bar(x + width/2, gate_values_masked, width,
+           color='#b2182b', label='Masked', alpha=0.8)
+
+    if group_names is not None:
+        ax.set_xticks(x)
+        ax.set_xticklabels(group_names, fontsize=7, rotation=45, ha='right')
+    else:
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'G{i}' for i in range(n)], fontsize=8)
+
+    ax.set_ylabel('Gate value')
+    ax.set_ylim(0, 1.05)
+    ax.set_title(title)
+    ax.legend(loc='upper right', fontsize=8)
+
+    # Add orthogonality indicator
+    cos_sim = np.dot(gate_values_visible, gate_values_masked) / (
+        np.linalg.norm(gate_values_visible) * np.linalg.norm(gate_values_masked) + 1e-10
+    )
+    ortho = 1.0 - abs(cos_sim)
+    ax.text(0.02, 0.95, f'Orthogonality: {ortho:.3f}',
+            transform=ax.transAxes, fontsize=8,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Predictive rank utilization
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_rank_utilization(
+    steps: Sequence[int],
+    effective_rank: Sequence[float],
+    max_rank: int,
+    title: str = 'Workspace Rank Utilization',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot effective rank of workspace prediction over training.
+
+    Shows whether the predictor is using all k workspace dimensions
+    or suffering from rank collapse.
+
+    Args:
+        steps: training step numbers.
+        effective_rank: effective rank values.
+        max_rank: maximum possible rank (k, workspace dimension).
+        title: plot title.
+        save_path: save path.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(figsize=(6, 3.5))
+    else:
+        fig = ax.figure
+
+    ax.plot(steps, effective_rank, color='#2166ac', label='Effective rank')
+    ax.axhline(max_rank, color='#b2182b', linestyle='--',
+               linewidth=1, label=f'Max rank (k={max_rank})')
+    ax.axhline(0.8 * max_rank, color='#4393c3', linestyle=':',
+               linewidth=1, label='80% utilization')
+
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Effective rank')
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.set_ylim(0, max_rank * 1.1)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Multi-panel dashboard
 # ═══════════════════════════════════════════════════════════════════
 

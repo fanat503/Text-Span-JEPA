@@ -11,3 +11,4 @@ from .collapse import (
     TargetCentering,
     CollapseDiagnostics,
 )
+from .cgn import ContextualGatingNetwork

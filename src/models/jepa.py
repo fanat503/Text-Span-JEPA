@@ -23,6 +23,7 @@ from .collapse import (
 from .sigreg import SIGReg, WeakSIGReg, VISReg
 from .jspace import JSpaceMetrics
 from .jawp import JAWPModule
+from .cgn import ContextualGatingNetwork
 
 
 class TextSpanJEPAConfig:
@@ -93,6 +94,17 @@ class TextSpanJEPAConfig:
         self.jawk_alpha = kwargs.get('jawk_alpha', 0.1)
         self.jawk_init = kwargs.get('jawk_init', 'identity')
 
+        # Predictive Rank Regularization (from JAWP module)
+        self.lambda_predictive_rank = kwargs.get('lambda_predictive_rank', 0.0)
+
+        # CGN: Contextual Gating Network (novel mechanism #6)
+        self.use_cgn = kwargs.get('use_cgn', False)
+        self.cgn_n_groups = kwargs.get('cgn_n_groups', 8)
+        self.cgn_tau_start = kwargs.get('cgn_tau_start', 1.0)
+        self.cgn_tau_end = kwargs.get('cgn_tau_end', 0.1)
+        self.cgn_anneal_steps = kwargs.get('cgn_anneal_steps', 10000)
+        self.lambda_cgn_ortho = kwargs.get('lambda_cgn_ortho', 0.0)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -129,6 +141,17 @@ class TextSpanJEPAConfig:
             raise ValueError(f"sigreg_sigma must be > 0 when SIGReg is active, got {self.sigreg_sigma}")
         if self.future_warmup_steps < 0:
             raise ValueError(f"future_warmup_steps must be >= 0, got {self.future_warmup_steps}")
+        if self.lambda_predictive_rank < 0:
+            raise ValueError(f"lambda_predictive_rank must be >= 0, got {self.lambda_predictive_rank}")
+        if self.use_cgn:
+            if self.embed_dim % self.cgn_n_groups != 0:
+                raise ValueError(f"embed_dim={self.embed_dim} must be divisible by cgn_n_groups={self.cgn_n_groups}")
+            if self.cgn_n_groups < 1:
+                raise ValueError(f"cgn_n_groups must be >= 1, got {self.cgn_n_groups}")
+            if self.cgn_tau_start <= 0 or self.cgn_tau_end <= 0:
+                raise ValueError(f"cgn temperatures must be > 0, got start={self.cgn_tau_start}, end={self.cgn_tau_end}")
+            if self.lambda_cgn_ortho < 0:
+                raise ValueError(f"lambda_cgn_ortho must be >= 0, got {self.lambda_cgn_ortho}")
         return True
 
 
@@ -195,6 +218,18 @@ class TextSpanJEPA(nn.Module):
         else:
             self.jawp = None
 
+        # CGN — novel mechanism #6: Contextual Gating Network
+        if config.use_cgn:
+            self.cgn = ContextualGatingNetwork(
+                embed_dim=config.embed_dim,
+                n_groups=config.cgn_n_groups,
+                tau_start=config.cgn_tau_start,
+                tau_end=config.cgn_tau_end,
+                anneal_steps=config.cgn_anneal_steps,
+            )
+        else:
+            self.cgn = None
+
     @torch.no_grad()
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
@@ -230,6 +265,12 @@ class TextSpanJEPA(nn.Module):
             h_target, _ = self.target_encoder(original_input_ids)
             h_target = self.target_centering(h_target)
             h_target = F.layer_norm(h_target, (h_target.size(-1),))
+
+        # CGN: apply contextual gating before predictor
+        # Routes information differently at masked vs visible positions
+        cgn_info = {}
+        if self.cgn is not None:
+            h_online, cgn_info = self.cgn(h_online, mask_positions, step=current_step)
 
         span_preds, num_masked, valid_mask, future_losses, future_preds = self.predictor(
             h_online, mask_positions, token_embeds_online, h_target.detach()
@@ -290,6 +331,32 @@ class TextSpanJEPA(nn.Module):
         else:
             loss_sigreg = _zero_loss
 
+        # Predictive Rank Regularization (prevents rank collapse in workspace)
+        lambda_pred_rank = self.config.lambda_predictive_rank
+        if lambda_pred_rank > 0 and self.jawp is not None:
+            if valid_mask.any() and span_preds.size(0) > 1:
+                loss_pred_rank = self.jawp.predictive_rank_loss(span_preds)
+            else:
+                loss_pred_rank = _zero_loss
+        else:
+            loss_pred_rank = _zero_loss
+
+        # CGN orthogonality loss: encourage visible/masked gates to differ
+        lambda_cgn_ortho = self.config.lambda_cgn_ortho
+        if lambda_cgn_ortho > 0 and self.cgn is not None:
+            # Loss = 1 - orthogonality (minimizing pushes orthogonality toward 1)
+            # Use differentiable gate logits directly:
+            # cos_sim(g_visible, g_masked) — we want this close to 0 (orthogonal)
+            probs_v = F.softmax(self.cgn.gate_logits_visible, dim=-1)[:, 1]
+            probs_m = F.softmax(self.cgn.gate_logits_masked, dim=-1)[:, 1]
+            cos_sim = F.cosine_similarity(
+                probs_v.unsqueeze(0), probs_m.unsqueeze(0)
+            )
+            # loss = cos_sim² → minimize to make gates orthogonal
+            loss_cgn_ortho = cos_sim.pow(2)
+        else:
+            loss_cgn_ortho = _zero_loss
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -297,6 +364,8 @@ class TextSpanJEPA(nn.Module):
             + self.config.lambda_variance * loss_variance
             + self.config.lambda_covariance * loss_covariance
             + lambda_sigreg * loss_sigreg
+            + lambda_pred_rank * loss_pred_rank
+            + lambda_cgn_ortho * loss_cgn_ortho
         )
 
         loss_dict = {
@@ -307,6 +376,8 @@ class TextSpanJEPA(nn.Module):
             'loss_variance': loss_variance.item(),
             'loss_covariance': loss_covariance.item(),
             'loss_sigreg': loss_sigreg.item(),
+            'loss_predictive_rank': loss_pred_rank.item(),
+            'loss_cgn_ortho': loss_cgn_ortho.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -314,6 +385,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict[f'loss_future_d{d}'] = l.item()
         if jawp_info:
             loss_dict.update({f"jawk_{k}": v for k, v in jawp_info.items()})
+        if cgn_info:
+            loss_dict.update({f"cgn_{k}": v for k, v in cgn_info.items()})
 
         diag_dict = self.diagnostics.compute(h_online.detach(), h_target.detach(),
                                               prev_target_h=self._prev_target_h)

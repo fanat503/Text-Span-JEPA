@@ -87,6 +87,11 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
         if model_name == 'text_span_jepa' and hasattr(model, 'jawp') and model.jawp is not None:
             state['jawp_workspace_Q'] = model.jawp.workspace_Q.data.clone()
             state['jawp_active_k'] = model.jawp.active_k.clone()
+        # CGN gate logits — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'cgn') and model.cgn is not None:
+            state['cgn_gate_logits_visible'] = model.cgn.gate_logits_visible.data.clone()
+            state['cgn_gate_logits_masked'] = model.cgn.gate_logits_masked.data.clone()
+            state['cgn_total_steps'] = model.cgn.total_steps.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -134,6 +139,13 @@ def load_checkpoint(path, model, optimizer, scaler,
                 model.jawp.workspace_Q.data.copy_(checkpoint['jawp_workspace_Q'])
             if 'jawp_active_k' in checkpoint and hasattr(model, 'jawp') and model.jawp is not None:
                 model.jawp.active_k.copy_(checkpoint['jawp_active_k'])
+            # CGN gate logits restoration
+            if 'cgn_gate_logits_visible' in checkpoint and hasattr(model, 'cgn') and model.cgn is not None:
+                model.cgn.gate_logits_visible.data.copy_(checkpoint['cgn_gate_logits_visible'])
+            if 'cgn_gate_logits_masked' in checkpoint and hasattr(model, 'cgn') and model.cgn is not None:
+                model.cgn.gate_logits_masked.data.copy_(checkpoint['cgn_gate_logits_masked'])
+            if 'cgn_total_steps' in checkpoint and hasattr(model, 'cgn') and model.cgn is not None:
+                model.cgn.total_steps.copy_(checkpoint['cgn_total_steps'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])
@@ -603,6 +615,14 @@ def main(args):
                             f'ws_cos={loss_dict.get("jawk_workspace_cosine",0):.3f} '
                             f'ortho={loss_dict.get("jawk_ortho_score",0):.3f} '
                             f'pca_align={loss_dict.get("jawk_pca_alignment",0):.3f}')
+                    # CGN-specific diagnostics
+                    if 'cgn_tau' in loss_dict:
+                        logger.info(
+                            f'[{epoch+1}, {itr:5d}] cgn: '
+                            f'tau={loss_dict.get("cgn_tau",0):.3f} '
+                            f'gate_diff={loss_dict.get("cgn_gate_diff",0):.3f} '
+                            f'routing_gap={loss_dict.get("cgn_routing_gap",0):.3f} '
+                            f'sparsity={loss_dict.get("cgn_sparsity",0):.3f}')
 
                 # CSV logging
                 csv_logger.log(

@@ -29,6 +29,13 @@ model:
   jspace_k_workspace: 25
   future_warmup_steps: 5000
   predictor_embed_dim: 320
+  lambda_predictive_rank: 0.0
+  use_cgn: false
+  cgn_n_groups: 8
+  cgn_tau_start: 1.0
+  cgn_tau_end: 0.1
+  cgn_anneal_steps: 10000
+  lambda_cgn_ortho: 0.0
 optimization:
   epochs: 30
   ipe_scale: 1.0
