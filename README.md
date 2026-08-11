@@ -155,8 +155,8 @@ license
 
 apache 2.0
 
-novel mechanisms (9 total)
---------------------------
+novel mechanisms (11 total)
+---------------------------
 
 each mechanism addresses a specific failure mode of standard JEPA, with a mathematical guarantee:
 
@@ -169,5 +169,7 @@ each mechanism addresses a specific failure mode of standard JEPA, with a mathem
 7. **SWIP** (Selective Whitening with Info Preservation) — representation anisotropy. Whitens background, preserves workspace hierarchy. L = Σ(log λ_i - log σ²)² for i > k.
 8. **PCR** (Predictive Cascade Refinement) — information bottleneck. I(z_ctx; z_L) ≥ I(z_ctx; z_0) + Σ I(r_{l-1}; P_l r_{l-1}) with orthogonal P_l.
 9. **SPC** (Spectral Predictive Coding) — frequency-dependent information loss. Band-specific weights w_b ∝ σ²_b × ρ²_b allocate capacity proportional to information content per frequency band.
+10. **WSD** (Workspace-Target Synchronization Drift) — workspace-target desynchronization. Drift bound: Δ(t) ≤ Δ(0)·exp(-λ·t) + ν_max/λ. Monitors Grassmann distance between JAWP workspace and target encoder's actual workspace.
+11. **CMC** (Cross-Mask Consistency Regularization) — multi-mask prediction inconsistency. When the same input is masked twice, predictions at overlapping positions should agree. Stability theorem: |f(z_pred_1) - f(z_pred_2)| ≤ ||w|| · √(L_CMC) for any downstream linear probe f. Free training signal at zero label cost.
 
 all mechanisms are drop-in: 2-3 lines to add to any JEPA variant. see `src/models/mechanisms.py` for the MechanismBundle API.

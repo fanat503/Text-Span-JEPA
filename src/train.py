@@ -102,6 +102,16 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
             state['spc_log_band_weights'] = model.spc.log_band_weights.data.clone()
             state['spc_running_residual_vars'] = model.spc.running_residual_vars.clone()
             state['spc_running_predictability'] = model.spc.running_predictability.clone()
+        # WSD running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'wsd') and model.wsd is not None:
+            state['wsd_running_drift'] = model.wsd.running_drift.clone()
+            state['wsd_target_ema'] = model.wsd.target_ema.clone()
+            state['wsd_total_syncs'] = model.wsd.total_syncs.clone()
+        # CMC running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'cmc') and model.cmc is not None:
+            state['cmc_running_consistency'] = model.cmc.running_consistency.clone()
+            state['cmc_running_overlap_ratio'] = model.cmc.running_overlap_ratio.clone()
+            state['cmc_total_cmc_steps'] = model.cmc.total_cmc_steps.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -172,6 +182,20 @@ def load_checkpoint(path, model, optimizer, scaler,
                 model.spc.running_residual_vars.copy_(checkpoint['spc_running_residual_vars'])
             if 'spc_running_predictability' in checkpoint and hasattr(model, 'spc') and model.spc is not None:
                 model.spc.running_predictability.copy_(checkpoint['spc_running_predictability'])
+            # WSD running statistics restoration
+            if 'wsd_running_drift' in checkpoint and hasattr(model, 'wsd') and model.wsd is not None:
+                model.wsd.running_drift.copy_(checkpoint['wsd_running_drift'])
+            if 'wsd_target_ema' in checkpoint and hasattr(model, 'wsd') and model.wsd is not None:
+                model.wsd.target_ema.copy_(checkpoint['wsd_target_ema'])
+            if 'wsd_total_syncs' in checkpoint and hasattr(model, 'wsd') and model.wsd is not None:
+                model.wsd.total_syncs.copy_(checkpoint['wsd_total_syncs'])
+            # CMC running statistics restoration
+            if 'cmc_running_consistency' in checkpoint and hasattr(model, 'cmc') and model.cmc is not None:
+                model.cmc.running_consistency.copy_(checkpoint['cmc_running_consistency'])
+            if 'cmc_running_overlap_ratio' in checkpoint and hasattr(model, 'cmc') and model.cmc is not None:
+                model.cmc.running_overlap_ratio.copy_(checkpoint['cmc_running_overlap_ratio'])
+            if 'cmc_total_cmc_steps' in checkpoint and hasattr(model, 'cmc') and model.cmc is not None:
+                model.cmc.total_cmc_steps.copy_(checkpoint['cmc_total_cmc_steps'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])

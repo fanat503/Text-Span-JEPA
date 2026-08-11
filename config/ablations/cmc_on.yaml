@@ -1,0 +1,7 @@
+# Ablation: CMC (Cross-Mask Consistency) ON
+# Overrides only CMC-related fields
+model:
+  use_cmc: true
+  cmc_mode: interval
+  cmc_interval: 10
+  lambda_cmc: 0.1

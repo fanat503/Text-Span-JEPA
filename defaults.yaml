@@ -81,9 +81,17 @@ model:
   lambda_spc: 0.0
   # WSD: Workspace-Target Synchronization Drift (novel mechanism #10)
   use_wsd: false
+  wsd_k: null
   wsd_sync_interval: 100
   wsd_ema_beta: 0.99
   lambda_wsd: 0.0
+  # CMC: Cross-Mask Consistency Regularization (novel mechanism #11)
+  use_cmc: false
+  cmc_second_mask_ratio: null
+  cmc_min_overlap_ratio: 0.2
+  cmc_mode: interval
+  cmc_interval: 10
+  lambda_cmc: 0.0
   # SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA, 2025)
   lambda_sigreg: 0.0
   sigreg_n_sketches: 64

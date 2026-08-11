@@ -955,3 +955,123 @@ def plot_spc_band_analysis(
     if save_path:
         fig.savefig(save_path)
     return fig, axes
+
+
+def plot_wsd_drift(
+    steps,
+    drift_values,
+    running_drift=None,
+    jepa_loss=None,
+    lambda_wsd=0.01,
+    title='WSD: Workspace-Target Drift',
+    ax=None,
+    save_path=None,
+):
+    """Plot WSD drift over training steps.
+
+    Args:
+        steps: list of training step indices.
+        drift_values: list of per-step drift values.
+        running_drift: list of running average drift.
+        jepa_loss: list of JEPA loss values (for comparison).
+        lambda_wsd: WSD penalty weight.
+        title: plot title.
+        ax: optional matplotlib axes.
+        save_path: optional save path.
+
+    Returns:
+        fig, ax
+    """
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    steps = np.array(steps)
+    drift_values = np.array(drift_values)
+
+    ax.semilogy(steps, drift_values + 1e-10, color='#d53e4f', alpha=0.3, label='Instantaneous drift')
+    if running_drift is not None:
+        ax.semilogy(steps, np.array(running_drift) + 1e-10,
+                    color='#d53e4f', linewidth=2, label='Running avg drift')
+    if jepa_loss is not None:
+        ax.semilogy(steps, np.array(jepa_loss) + 1e-10,
+                    color='#3288bd', alpha=0.5, linewidth=1, label='JEPA loss')
+
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Grassmann drift (log scale)')
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+def plot_cmc_consistency(
+    steps,
+    cmc_losses,
+    overlap_ratios=None,
+    probe_norm=1.0,
+    title='CMC: Cross-Mask Consistency',
+    ax=None,
+    save_path=None,
+):
+    """Plot CMC consistency loss and downstream stability bound.
+
+    Args:
+        steps: list of training step indices.
+        cmc_losses: list of CMC loss values.
+        overlap_ratios: list of overlap ratios.
+        probe_norm: ||w|| for downstream stability bound.
+        title: plot title.
+        ax: optional matplotlib axes.
+        save_path: optional save path.
+
+    Returns:
+        fig, axes
+    """
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    else:
+        fig = ax.get_figure()
+        axes = [ax, ax]
+
+    steps = np.array(steps)
+    cmc_losses = np.array(cmc_losses)
+
+    # Left: CMC loss
+    axes[0].semilogy(steps, cmc_losses + 1e-10, color='#66c2a5', linewidth=1.5)
+    axes[0].set_xlabel('Training step')
+    axes[0].set_ylabel('CMC loss (log scale)')
+    axes[0].set_title('Cross-Mask Consistency')
+    axes[0].grid(True, alpha=0.3)
+
+    # Right: downstream stability bound ||w|| * sqrt(epsilon)
+    stability_bound = probe_norm * np.sqrt(np.maximum(cmc_losses, 0))
+    axes[1].plot(steps, stability_bound, color='#fc8d62', linewidth=1.5)
+    axes[1].set_xlabel('Training step')
+    axes[1].set_ylabel(f'Downstream stability (||w||={probe_norm:.1f})')
+    axes[1].set_title('Stability Bound: |f(z₁) - f(z₂)| ≤ ||w||√ε')
+    axes[1].grid(True, alpha=0.3)
+
+    if overlap_ratios is not None:
+        ax2 = axes[0].twinx()
+        ax2.plot(steps, overlap_ratios, color='#8da0cb', alpha=0.4, linewidth=0.8)
+        ax2.set_ylabel('Overlap ratio', color='#8da0cb', fontsize=8)
+
+    fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, axes

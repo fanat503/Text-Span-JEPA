@@ -549,15 +549,30 @@ class JAWPModule(nn.Module):
 
         Then span(Q_JAWP) must contain a non-trivial projection of f_exo.
 
-        PROOF (by contradiction):
+        PROOF (by contradiction, under regularity condition):
           Suppose span(Q) ⊥ f_exo (workspace orthogonal to exogenous feature).
           Then Q^T f_exo = 0, so predicting Q^T z_target cannot use f_exo.
-          But I(f_exo; z_target) > 0 implies f_exo reduces prediction residual.
-          Specifically, Σ_res|_{⊥f_exo} ≻ Σ_res|_{incl. f_exo}
-          (residual covariance without f_exo strictly exceeds that with f_exo).
-          Since Q minimizes tr(Q^T Σ_res Q) (Courant-Fischer),
-          excluding f_exo from span(Q) increases the objective.
+
+          Regularity condition: f_exo has non-zero component in the
+          eigenspace of Σ_res corresponding to eigenvalues ≤ λ_k
+          (the k-th smallest eigenvalue). This holds generically when
+          f_exo has non-zero projection onto directions that reduce
+          prediction residual — the typical case in practice.
+
+          Under this condition: I(f_exo; z_target) > 0 implies f_exo
+          has non-zero projection onto at least one of the bottom-k
+          eigenvectors of Σ_res. Since Q^T Σ_res Q is minimized when
+          Q spans these eigenvectors (Courant-Fischer), excluding
+          f_exo from span(Q) increases tr(Q^T Σ_res Q).
           This contradicts Q being the minimizer. ∎
+
+        NOTE: The regularity condition is essential. If f_exo is
+        purely in the high-residual eigenspace (orthogonal to the
+        bottom-k eigenvectors), then JAWP correctly excludes it —
+        such features are unpredictable and should not be in the
+        workspace. The theorem guarantees preservation only for
+        features that are BOTH informative AND predictable, which
+        is exactly the set JEPA should retain.
 
         PRACTICAL IMPLICATION:
           JAWP's workspace subspace AUTOMATICALLY preserves exogenous

@@ -1,22 +1,36 @@
 # Copyright 2026 Text-Span JEPA Authors
 # Licensed under the Apache License, Version 2.0
 #
-# Convenience API: One-line access to all 8 novel mechanisms.
+# Convenience API: One-line access to all 11 novel mechanisms.
 #
 # ═══════════════════════════════════════════════════════════════════════════
-#  USAGE (3 lines to upgrade any JEPA with all 8 mechanisms)
+#  USAGE (3 lines to upgrade any JEPA with all mechanisms)
 # ═══════════════════════════════════════════════════════════════════════════
 #
 #  from src.models.mechanisms import MechanismBundle
 #
-#  bundle = MechanismBundle.from_config(config)  # line 1
-#  z_refined, all_info = bundle(z_pred, z_target, mask_positions, step)  # line 2
-#  bundle.retract()  # line 3 (after optimizer.step())
+#  bundle = MechanismBundle.from_config(config)          # line 1
+#  z_refined, all_info = bundle(z_pred, z_target,        # line 2
+#                               mask_positions, step)
+#  bundle.retract()                                       # line 3
 #
-#  That's it. All 8 mechanisms in 3 lines.
+#  That's it. All 11 mechanisms in 3 lines.
+#
+#  Mechanisms:
+#    1.  JAWP  — workspace prediction (Courant-Fischer optimality)
+#    2.  WIP   — information preservation (theorem guarantee)
+#    3.  Spectral Gap — automatic k* (Marchenko-Pastur)
+#    4.  Grassmann — subspace optimization (fiber projection)
+#    5.  Predictive Rank — rank preservation (log-det barrier)
+#    6.  CGN   — contextual gating (information routing theorem)
+#    7.  SWIP  — selective whitening (log-eigenvalue matching)
+#    8.  PCR   — cascade refinement (cascade capacity theorem)
+#    9.  SPC   — spectral predictive coding (info-proportional capacity)
+#    10. WSD   — workspace-target sync drift (drift bound theorem)
+#    11. CMC   — cross-mask consistency (stability theorem)
 #
 #  You can also use individual mechanisms:
-#    from src.models.mechanisms import jawp_loss, cgn_gate, pcr_refine, swip_whiten
+#    from src.models.mechanisms import jawp_loss, cgn_gate, pcr_refine, ...
 
 import torch
 import torch.nn as nn
@@ -28,24 +42,15 @@ from .cgn import ContextualGatingNetwork
 from .swip import SWIPModule
 from .pcr import PredictiveCascadeRefinement
 from .spc import SpectralPredictiveCoding
+from .wsd import WorkspaceSyncDrift
+from .cmc import CrossMaskConsistency
 
 
 class MechanismBundle(nn.Module):
-    """All 8 Text-Span JEPA mechanisms in one convenient module.
+    """All 11 Text-Span JEPA mechanisms in one convenient module.
 
     Drop-in upgrade for ANY JEPA variant:
       I-JEPA, V-JEPA, C-JEPA, TD-JEPA, LeJEPA, etc.
-
-    Mechanisms:
-      1. JAWP — workspace prediction (Courant-Fischer optimality)
-      2. WIP  — information preservation (theorem guarantee)
-      3. Spectral Gap — automatic k* (Marchenko-Pastur)
-      4. Grassmann — subspace optimization (fiber projection)
-      5. Predictive Rank — rank preservation (log-det barrier)
-      6. CGN — contextual gating (information routing theorem)
-      7. SWIP — selective whitening (log-eigenvalue matching)
-      8. PCR — cascade refinement (cascade capacity theorem)
-      9. SPC — spectral predictive coding (information-proportional capacity)
 
     Usage:
         bundle = MechanismBundle.from_config(config)
@@ -84,6 +89,17 @@ class MechanismBundle(nn.Module):
         use_spc: bool = False,
         spc_n_bands: int = 8,
         spc_init: str = 'dct',
+        # WSD
+        use_wsd: bool = False,
+        wsd_k: Optional[int] = None,
+        wsd_sync_interval: int = 100,
+        wsd_ema_beta: float = 0.99,
+        # CMC
+        use_cmc: bool = False,
+        cmc_second_mask_ratio: Optional[float] = None,
+        cmc_min_overlap_ratio: float = 0.2,
+        cmc_mode: str = 'interval',
+        cmc_interval: int = 10,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -92,17 +108,16 @@ class MechanismBundle(nn.Module):
         self.use_swip = use_swip
         self.use_pcr = use_pcr
         self.use_spc = use_spc
+        self.use_wsd = use_wsd
+        self.use_cmc = use_cmc
         self.lambda_predictive_rank = lambda_predictive_rank
 
-        # Mechanism 1-5: JAWP (includes WIP, Spectral Gap, Grassmann, Predictive Rank)
+        # Mechanism 1-5: JAWP
         if use_jawp:
             self.jawp = JAWPModule(
-                embed_dim=embed_dim,
-                k_start=jawk_k_start,
-                k_end=jawk_k_end,
-                curriculum_steps=jawk_curriculum_steps,
-                alpha=jawk_alpha,
-                init=jawk_init,
+                embed_dim=embed_dim, k_start=jawk_k_start,
+                k_end=jawk_k_end, curriculum_steps=jawk_curriculum_steps,
+                alpha=jawk_alpha, init=jawk_init,
             )
         else:
             self.jawp = None
@@ -110,10 +125,8 @@ class MechanismBundle(nn.Module):
         # Mechanism 6: CGN
         if use_cgn:
             self.cgn = ContextualGatingNetwork(
-                embed_dim=embed_dim,
-                n_groups=cgn_n_groups,
-                tau_start=cgn_tau_start,
-                tau_end=cgn_tau_end,
+                embed_dim=embed_dim, n_groups=cgn_n_groups,
+                tau_start=cgn_tau_start, tau_end=cgn_tau_end,
                 anneal_steps=cgn_anneal_steps,
             )
         else:
@@ -122,8 +135,7 @@ class MechanismBundle(nn.Module):
         # Mechanism 7: SWIP
         if use_swip:
             self.swip = SWIPModule(
-                embed_dim=embed_dim,
-                k_workspace=swip_k_workspace,
+                embed_dim=embed_dim, k_workspace=swip_k_workspace,
                 target_variance=swip_target_variance,
                 use_jawp_workspace=use_jawp,
             )
@@ -133,8 +145,7 @@ class MechanismBundle(nn.Module):
         # Mechanism 8: PCR
         if use_pcr:
             self.pcr = PredictiveCascadeRefinement(
-                embed_dim=embed_dim,
-                n_levels=pcr_n_levels,
+                embed_dim=embed_dim, n_levels=pcr_n_levels,
                 level_dims=pcr_level_dims,
             )
             self.pcr.warmup_steps = pcr_warmup_steps
@@ -144,12 +155,31 @@ class MechanismBundle(nn.Module):
         # Mechanism 9: SPC
         if use_spc:
             self.spc = SpectralPredictiveCoding(
-                embed_dim=embed_dim,
-                n_bands=spc_n_bands,
-                init=spc_init,
+                embed_dim=embed_dim, n_bands=spc_n_bands, init=spc_init,
             )
         else:
             self.spc = None
+
+        # Mechanism 10: WSD
+        if use_wsd and use_jawp:
+            k_ws = wsd_k or (jawk_k_end or embed_dim // 10)
+            self.wsd = WorkspaceSyncDrift(
+                embed_dim=embed_dim, k=k_ws,
+                sync_interval=wsd_sync_interval, ema_beta=wsd_ema_beta,
+            )
+        else:
+            self.wsd = None
+
+        # Mechanism 11: CMC
+        if use_cmc:
+            self.cmc = CrossMaskConsistency(
+                embed_dim=embed_dim,
+                second_mask_ratio=cmc_second_mask_ratio,
+                min_overlap_ratio=cmc_min_overlap_ratio,
+                mode=cmc_mode, interval=cmc_interval,
+            )
+        else:
+            self.cmc = None
 
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
@@ -178,6 +208,15 @@ class MechanismBundle(nn.Module):
             use_spc=getattr(config, 'use_spc', False),
             spc_n_bands=getattr(config, 'spc_n_bands', 8),
             spc_init=getattr(config, 'spc_init', 'dct'),
+            use_wsd=getattr(config, 'use_wsd', False),
+            wsd_k=getattr(config, 'wsd_k', None),
+            wsd_sync_interval=getattr(config, 'wsd_sync_interval', 100),
+            wsd_ema_beta=getattr(config, 'wsd_ema_beta', 0.99),
+            use_cmc=getattr(config, 'use_cmc', False),
+            cmc_second_mask_ratio=getattr(config, 'cmc_second_mask_ratio', None),
+            cmc_min_overlap_ratio=getattr(config, 'cmc_min_overlap_ratio', 0.2),
+            cmc_mode=getattr(config, 'cmc_mode', 'interval'),
+            cmc_interval=getattr(config, 'cmc_interval', 10),
         )
 
     def forward(
@@ -187,43 +226,30 @@ class MechanismBundle(nn.Module):
         mask_positions: Optional[torch.Tensor] = None,
         step: int = 0,
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
-        """Apply all active mechanisms.
-
-        Args:
-            z: (..., D) online representations.
-            z_target: (..., D) target representations (will be detached internally).
-            mask_positions: (B, T) binary mask for CGN. 1=masked, 0=visible.
-            step: training step (for curriculum, annealing, warmup).
-
-        Returns:
-            z_out: (..., D) processed representations.
-            info: dict with all mechanism diagnostics.
-        """
+        """Apply all active mechanisms."""
         info = {}
         z_out = z
 
-        # CGN: route information differently at masked/visible positions
+        # CGN
         if self.cgn is not None and mask_positions is not None:
             z_out, cgn_info = self.cgn(z_out, mask_positions, step=step)
             info.update({f'cgn_{k}': v for k, v in cgn_info.items()})
 
-        # PCR: refine predictions through orthogonal subspace cascade
+        # PCR
         if self.pcr is not None:
             z_out, pcr_info = self.pcr(z_out, z_target, step=step)
             info.update({f'pcr_{k}': v for k, v in pcr_info.items()})
 
-        # JAWP: compute workspace prediction loss
+        # JAWP
         if self.jawp is not None:
             jawp_loss, jawp_info = self.jawp.compute_loss(z_out, z_target, step=step)
             info['jawp_loss'] = jawp_loss
             info.update({f'jawp_{k}': v for k, v in jawp_info.items()})
-
-            # Predictive Rank: prevent rank collapse in workspace
             if self.lambda_predictive_rank > 0:
                 rank_loss = self.jawp.predictive_rank_loss(z_out)
                 info['predictive_rank_loss'] = rank_loss.item()
 
-        # SWIP: selective whitening of background
+        # SWIP
         if self.swip is not None:
             ws_Q = None
             if self.jawp is not None:
@@ -233,20 +259,46 @@ class MechanismBundle(nn.Module):
             info['swip_loss'] = swip_loss
             info.update({f'swip_{k}': v for k, v in swip_info.items()})
 
-        # SPC: spectral predictive coding
+        # SPC
         if self.spc is not None:
             spc_loss, spc_info = self.spc(z_out, z_target)
             info['spc_loss'] = spc_loss
             info.update({f'spc_{k}': v for k, v in spc_info.items()})
 
+        # WSD
+        if self.wsd is not None and self.jawp is not None:
+            k_active = int(self.jawp.active_k.item())
+            Q_jawp = self.jawp.workspace_Q.data[:, :k_active]
+            wsd_loss, wsd_info = self.wsd.compute_drift(Q_jawp, z_target, step=step)
+            info['wsd_loss'] = wsd_loss
+            info.update({f'wsd_{k}': v for k, v in wsd_info.items()})
+
         return z_out, info
 
-    def retract(self):
-        """Call after optimizer.step() to maintain manifold constraints.
+    def compute_cmc_loss(
+        self,
+        z_pred_primary: torch.Tensor,
+        z_pred_secondary: torch.Tensor,
+        overlap_mask: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+        """Compute CMC loss (requires second forward pass, call separately).
 
-        Applies Stiefel retraction for JAWP and PCR projection matrices.
-        Also applies Grassmann retraction for JAWP (if preferred).
+        Args:
+            z_pred_primary: (B, T, D) predictions from primary mask.
+            z_pred_secondary: (B, T, D) predictions from secondary mask.
+            overlap_mask: (B, T) binary — 1 if masked in BOTH masks.
+
+        Returns:
+            loss: scalar tensor.
+            info: dict with diagnostics.
         """
+        if self.cmc is None:
+            zero = torch.tensor(0.0, device=z_pred_primary.device)
+            return zero, {'cmc_loss': 0.0, 'cmc_skipped': True}
+        return self.cmc(z_pred_primary, z_pred_secondary, overlap_mask)
+
+    def retract(self):
+        """Call after optimizer.step() to maintain manifold constraints."""
         if self.jawp is not None:
             self.jawp.stiefel_retract()
         if self.pcr is not None:
@@ -255,22 +307,14 @@ class MechanismBundle(nn.Module):
             self.spc.stiefel_retract()
 
     def compute_capacity_bound(self, z_pred: torch.Tensor, z_target: torch.Tensor) -> float:
-        """Compute total theoretical information gain from all mechanisms.
-
-        Returns lower bound on additional information (nats).
-        """
+        """Compute total theoretical information gain from all mechanisms."""
         total = 0.0
-
-        # JAWP: WIP score
         if self.jawp is not None:
             wip_score, _ = self.jawp.workspace_information_preservation(z_pred, z_target)
             total += max(wip_score, 0.0)
-
-        # PCR: Cascade Capacity bound
         if self.pcr is not None:
             pcr_bound, _ = self.pcr.compute_cascade_capacity_bound(z_pred, z_target)
             total += pcr_bound
-
         return total
 
 
@@ -279,81 +323,28 @@ class MechanismBundle(nn.Module):
 # ═══════════════════════════════════════════════════════════════════
 
 def jawp_loss(z_pred, z_target, embed_dim=768, k=77, alpha=0.1, step=0):
-    """Compute JAWP loss — one function call.
-
-    Args:
-        z_pred: (..., D) predictor output.
-        z_target: (..., D) target encoder output (will be detached).
-        embed_dim: embedding dimension.
-        k: workspace dimension.
-        alpha: predictor focus weight.
-        step: training step (for curriculum).
-
-    Returns:
-        loss: scalar tensor.
-        info: dict with diagnostics.
-
-    Example:
-        loss, info = jawp_loss(z_pred, z_target, k=77)
-        loss.backward()
-    """
+    """Compute JAWP loss — one function call."""
     jawp = JAWPModule(embed_dim=embed_dim, k_start=1, k_end=k, alpha=alpha)
-    # Move to same device as input
     jawp = jawp.to(z_pred.device)
     return jawp.compute_loss(z_pred, z_target, step=step)
 
 
 def cgn_gate(z, mask_positions, embed_dim=768, n_groups=8, step=0):
-    """Apply contextual gating — one function call.
-
-    Args:
-        z: (B, T, D) representations.
-        mask_positions: (B, T) binary mask.
-        embed_dim: embedding dimension.
-        n_groups: number of gate groups.
-        step: training step.
-
-    Returns:
-        z_gated: gated representations.
-        info: dict with diagnostics.
-    """
+    """Apply contextual gating — one function call."""
     cgn = ContextualGatingNetwork(embed_dim=embed_dim, n_groups=n_groups)
     cgn = cgn.to(z.device)
     return cgn(z, mask_positions, step=step)
 
 
 def pcr_refine(z_pred, z_target, embed_dim=768, n_levels=3, step=0):
-    """Refine predictions via orthogonal cascade — one function call.
-
-    Args:
-        z_pred: (..., D) base predictions.
-        z_target: (..., D) targets (will be detached).
-        embed_dim: embedding dimension.
-        n_levels: number of refinement levels.
-        step: training step.
-
-    Returns:
-        z_refined: refined predictions.
-        info: dict with diagnostics.
-    """
+    """Refine predictions via orthogonal cascade — one function call."""
     pcr = PredictiveCascadeRefinement(embed_dim=embed_dim, n_levels=n_levels)
     pcr = pcr.to(z_pred.device)
     return pcr(z_pred, z_target, step=step)
 
 
 def swip_whiten(z, embed_dim=768, k_workspace=25, target_variance=1.0):
-    """Selective whitening with information preservation — one function call.
-
-    Args:
-        z: (..., D) representations.
-        embed_dim: embedding dimension.
-        k_workspace: workspace dimension.
-        target_variance: target background variance.
-
-    Returns:
-        loss: scalar tensor.
-        info: dict with diagnostics.
-    """
+    """Selective whitening with information preservation — one function call."""
     swip = SWIPModule(embed_dim=embed_dim, k_workspace=k_workspace,
                       target_variance=target_variance)
     swip = swip.to(z.device)
@@ -361,23 +352,21 @@ def swip_whiten(z, embed_dim=768, k_workspace=25, target_variance=1.0):
 
 
 def spc_loss(z_pred, z_target, embed_dim=768, n_bands=8, init='dct'):
-    """Spectral predictive coding loss — one function call.
-
-    Args:
-        z_pred: (..., D) predictor output.
-        z_target: (..., D) target encoder output (will be detached).
-        embed_dim: embedding dimension.
-        n_bands: number of frequency bands.
-        init: 'dct' (DCT-II basis) or 'random'.
-
-    Returns:
-        loss: scalar tensor.
-        info: dict with diagnostics.
-
-    Example:
-        loss, info = spc_loss(z_pred, z_target, n_bands=8)
-        loss.backward()
-    """
+    """Spectral predictive coding loss — one function call."""
     spc = SpectralPredictiveCoding(embed_dim=embed_dim, n_bands=n_bands, init=init)
     spc = spc.to(z_pred.device)
     return spc(z_pred, z_target)
+
+
+def wsd_drift(Q_jawp, z_target, embed_dim=768, k=77, sync_interval=100):
+    """Workspace-target synchronization drift — one function call."""
+    wsd = WorkspaceSyncDrift(embed_dim=embed_dim, k=k, sync_interval=sync_interval)
+    wsd = wsd.to(Q_jawp.device)
+    return wsd.compute_drift(Q_jawp, z_target, step=0)
+
+
+def cmc_consistency(z_pred_1, z_pred_2, overlap_mask, embed_dim=768):
+    """Cross-mask consistency loss — one function call."""
+    cmc = CrossMaskConsistency(embed_dim=embed_dim)
+    cmc = cmc.to(z_pred_1.device)
+    return cmc(z_pred_1, z_pred_2, overlap_mask)

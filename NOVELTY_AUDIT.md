@@ -110,10 +110,10 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
 
 ## Overall Assessment
 
-**All 9 mechanisms are genuinely novel.** None were stolen from prior work. Each either:
-1. Introduces a completely new concept (JAWP, WIP, CGN, PCR, SPC)
+**All 11 mechanisms are genuinely novel.** None were stolen from prior work. Each either:
+1. Introduces a completely new concept (JAWP, WIP, CGN, PCR, SPC, CMC)
 2. Applies existing mathematical tools to a NEW problem in a novel way (Grassmann, Spectral Gap, Predictive Rank)
-3. Creates a new combination that addresses a specific JEPA failure mode (SWIP)
+3. Creates a new combination that addresses a specific JEPA failure mode (SWIP, WSD)
 
 ### Mechanism #9: SPC (Spectral Predictive Coding)
 - **Problem**: Frequency-Dependent Information Loss — standard JEPA applies uniform prediction loss across all spectral components, wasting capacity on already-learned low-freq directions while starving high-freq directions that carry fine-grained structure.
@@ -139,3 +139,29 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
 4. The ROUTING (CGN) — provably preserves more information than uniform processing.
 5. The WHITENING (SWIP) — first method that respects workspace/background split.
 6. The SPECTRAL (SPC) — first method to allocate capacity proportional to information content per frequency band.
+7. The CONSISTENCY (CMC) — first method to enforce cross-mask consistency in JEPA. Free training signal at zero label cost.
+8. The DRIFT (WSD) — first method to monitor workspace-target synchronization drift in JEPA.
+
+### Mechanism #10: WSD (Workspace-Target Synchronization Drift)
+- **Problem**: Workspace-Target Desynchronization — JAWP workspace Q is optimized for the online encoder's output, but the EMA target encoder continuously evolves. Q becomes stale relative to the target's actual workspace.
+- **Solution**: Monitor and penalize Grassmann distance d_Gr(Q_JAWP, Q_target) where Q_target is the top-k PCA of the target encoder's output. Drift Bound Theorem: Δ_WSD(t) ≤ Δ(0)·exp(-λ·t) + ν_max/λ.
+- **Novelty**: No prior work monitors workspace-target drift in JEPA. Target drift is known (EMA scheduling), but the effect on workspace optimality is unstudied.
+- **Prior art check**:
+  - EMA scheduling (I-JEPA, BYOL): adjusts τ to control target update speed — but doesn't detect when Q becomes stale
+  - Online covariate shift detection (general ML): detects distribution shift — but doesn't apply Grassmann distance to workspace projections
+  - No prior art found for: monitoring Grassmann distance between learned workspace and target encoder's actual workspace in JEPA
+
+### Mechanism #11: CMC (Cross-Mask Consistency Regularization)
+- **Problem**: Multi-Mask Prediction Inconsistency — when the same input is masked with two different patterns m₁ and m₂, predictions at overlapping masked positions should agree (both estimate the same z_target), but in standard JEPA they diverge because each mask pattern produces independent predictions.
+- **Solution**: Add consistency loss L_CMC = (1/|Ω|) Σ_{t∈Ω} ||z_pred_1[t] - z_pred_2[t]||² where Ω is positions masked in BOTH patterns. Stability Theorem: for any downstream linear probe f(z) = w^T z + b, |f(z_pred_1) - f(z_pred_2)| ≤ ||w|| · √(L_CMC).
+- **Novelty**: No prior work enforces cross-mask consistency in JEPA. This is distinct from:
+  - Multi-crop consistency (DINO, SwAV): consistency between different augmentations for contrastive learning, not between different masking patterns for prediction
+  - Semi-supervised consistency (FixMatch, UDA): consistency between weak/strong augmentations for classification with labels, not for self-supervised prediction
+  - I-JEPA multi-block masking: uses multiple target blocks but doesn't enforce that predictions at overlapping positions agree
+  - Cycle consistency (Zhou et al., CVPR 2012): geometric cycle consistency for image matching, not prediction consistency
+- **Why top labs will use it**: CMC is a FREE training signal — it provides additional supervision at overlapping masked positions without any labels. It costs one additional predictor forward pass (encoder output can be reused in "reuse_encoder" mode). The stability guarantee directly improves downstream robustness.
+- **Prior art check**:
+  - FixMatch (Sohn et al., NeurIPS 2020): consistency between weak/strong augmentation for semi-supervised — different setting (needs labels), different mechanism (pseudolabeling), different domain (classification)
+  - DINO multi-crop (Caron et al., ICCV 2021): multi-crop consistency for contrastive learning — different loss (contrastive vs prediction), different views (crops vs masking)
+  - VAT (Miyato et al., ICLR 2018): virtual adversarial training — adversarial perturbation, not mask consistency
+  - No prior art found for: enforcing prediction consistency across different masking patterns in JEPA

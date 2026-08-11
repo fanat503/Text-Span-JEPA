@@ -28,6 +28,7 @@ from .swip import SWIPModule
 from .pcr import PredictiveCascadeRefinement
 from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
+from .cmc import CrossMaskConsistency
 
 
 class TextSpanJEPAConfig:
@@ -129,9 +130,18 @@ class TextSpanJEPAConfig:
 
         # WSD: Workspace-Target Synchronization Drift (novel mechanism #10)
         self.use_wsd = kwargs.get('use_wsd', False)
+        self.wsd_k = kwargs.get('wsd_k', None)
         self.wsd_sync_interval = kwargs.get('wsd_sync_interval', 100)
         self.wsd_ema_beta = kwargs.get('wsd_ema_beta', 0.99)
         self.lambda_wsd = kwargs.get('lambda_wsd', 0.0)
+
+        # CMC: Cross-Mask Consistency Regularization (novel mechanism #11)
+        self.use_cmc = kwargs.get('use_cmc', False)
+        self.cmc_second_mask_ratio = kwargs.get('cmc_second_mask_ratio', None)
+        self.cmc_min_overlap_ratio = kwargs.get('cmc_min_overlap_ratio', 0.2)
+        self.cmc_mode = kwargs.get('cmc_mode', 'interval')
+        self.cmc_interval = kwargs.get('cmc_interval', 10)
+        self.lambda_cmc = kwargs.get('lambda_cmc', 0.0)
 
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
@@ -210,6 +220,13 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"lambda_wsd must be >= 0, got {self.lambda_wsd}")
             if self.wsd_sync_interval < 1:
                 raise ValueError(f"wsd_sync_interval must be >= 1, got {self.wsd_sync_interval}")
+        if self.use_cmc:
+            if self.lambda_cmc < 0:
+                raise ValueError(f"lambda_cmc must be >= 0, got {self.lambda_cmc}")
+            if self.cmc_mode not in ('always', 'interval', 'reuse_encoder'):
+                raise ValueError(f"cmc_mode must be always/interval/reuse_encoder, got '{self.cmc_mode}'")
+            if self.cmc_min_overlap_ratio < 0 or self.cmc_min_overlap_ratio > 1:
+                raise ValueError(f"cmc_min_overlap_ratio must be in [0,1], got {self.cmc_min_overlap_ratio}")
         return True
 
 
@@ -331,6 +348,19 @@ class TextSpanJEPA(nn.Module):
             )
         else:
             self.wsd = None
+
+        # CMC — novel mechanism #11: Cross-Mask Consistency Regularization
+        if config.use_cmc:
+            self.cmc = CrossMaskConsistency(
+                embed_dim=config.embed_dim,
+                second_mask_ratio=config.cmc_second_mask_ratio,
+                min_overlap_ratio=config.cmc_min_overlap_ratio,
+                mode=config.cmc_mode,
+                interval=config.cmc_interval,
+            )
+        else:
+            self.cmc = None
+
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 

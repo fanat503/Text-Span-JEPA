@@ -1,0 +1,6 @@
+# Ablation: WSD (Workspace-Target Synchronization Drift) ON
+# Overrides only WSD-related fields
+model:
+  use_wsd: true
+  wsd_sync_interval: 100
+  lambda_wsd: 0.01

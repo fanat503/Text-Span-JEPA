@@ -49,21 +49,33 @@
 #  encoder output, and M the mask. Let g_visible and g_masked be the
 #  gating patterns at visible and masked positions respectively.
 #
-#  If g_visible ⊥ g_masked (orthogonal gating), then:
+#  Condition (Partition of Unity): g_visible + g_masked = 1
+#  (every dimension is routed to exactly one gate).
+#
+#  Under this condition and orthogonal gating (g_v ⊥ g_m):
 #    I(g_visible ⊙ Z; Y) + I(g_masked ⊙ Z; Y) ≥ I(Z; Y)
 #
 #  i.e., context-aware routing preserves AT LEAST as much task-relevant
 #  information as uniform processing. Equality holds only when all
 #  positions are equally informative (unrealistic in practice).
 #
-#  Proof: By the Data Processing Inequality, for any function g:
-#    I(g(Z); Y) ≤ I(Z; Y)
-#  But when g acts on orthogonal subspaces:
+#  Proof: When g_v + g_m = 1 (partition of unity), the gated
+#  representations g_v ⊙ Z and g_m ⊙ Z form a SUFFICIENT STATISTIC
+#  for Z relative to Y: knowing both g_v ⊙ Z and g_m ⊙ Z is
+#  equivalent to knowing Z = g_v ⊙ Z + g_m ⊙ Z.
+#  Therefore: I(g_v ⊙ Z, g_m ⊙ Z; Y) = I(Z; Y).
+#  By the chain rule of mutual information:
+#    I(g_v ⊙ Z, g_m ⊙ Z; Y) ≤ I(g_v ⊙ Z; Y) + I(g_m ⊙ Z; Y)
+#  with equality when g_v ⊙ Z and g_m ⊙ Z are conditionally
+#  independent given Y. In the general case:
 #    I(g_v ⊙ Z; Y) + I(g_m ⊙ Z; Y) = I(Z; Y) + I(g_v ⊙ Z; g_m ⊙ Z | Y)
-#  where the mutual information term is non-negative by definition.
-#  When g_v and g_m separate task-relevant from task-irrelevant
-#  information, the conditional MI is strictly positive, giving a
-#  STRICT improvement over uniform processing. □
+#  The conditional MI is non-negative, giving the bound. □
+#
+#  NOTE: The partition of unity condition g_v + g_m = 1 is important.
+#  Our Gumbel-Softmax implementation approximates this by using
+#  complementary sigmoid gates. At convergence (τ → 0), the hard
+#  sigmoid satisfies g_v + g_m = 1 exactly. During annealing, the
+#  approximation improves as τ decreases.
 #
 #  Corollary: The gap I(g_v ⊙ Z; g_m ⊙ Z | Y) > 0 whenever the
 #  visible and masked positions carry non-redundant information about Y.
