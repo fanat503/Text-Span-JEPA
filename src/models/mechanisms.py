@@ -101,6 +101,11 @@ class MechanismBundle(nn.Module):
         cmc_min_overlap_ratio: float = 0.2,
         cmc_mode: str = 'interval',
         cmc_interval: int = 10,
+        # GAC
+        use_gac: bool = False,
+        gac_gamma: float = 0.01,
+        gac_tau_grad: float = 1e-4,
+        gac_warmup_steps: int = 1000,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -111,6 +116,7 @@ class MechanismBundle(nn.Module):
         self.use_spc = use_spc
         self.use_wsd = use_wsd
         self.use_cmc = use_cmc
+        self.use_gac = use_gac
         self.lambda_predictive_rank = lambda_predictive_rank
 
         # Mechanism 1-5: JAWP
@@ -182,6 +188,15 @@ class MechanismBundle(nn.Module):
         else:
             self.cmc = None
 
+        # Mechanism 12: GAC
+        if use_gac:
+            self.gac = GradientAllocatedCapacity(
+                embed_dim=embed_dim, gamma=gac_gamma,
+                tau_grad=gac_tau_grad, warmup_steps=gac_warmup_steps,
+            )
+        else:
+            self.gac = None
+
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
         """Create from a TextSpanJEPAConfig object."""
@@ -218,6 +233,10 @@ class MechanismBundle(nn.Module):
             cmc_min_overlap_ratio=getattr(config, 'cmc_min_overlap_ratio', 0.2),
             cmc_mode=getattr(config, 'cmc_mode', 'interval'),
             cmc_interval=getattr(config, 'cmc_interval', 10),
+            use_gac=getattr(config, 'use_gac', False),
+            gac_gamma=getattr(config, 'gac_gamma', 0.01),
+            gac_tau_grad=getattr(config, 'gac_tau_grad', 1e-4),
+            gac_warmup_steps=getattr(config, 'gac_warmup_steps', 1000),
         )
 
     def forward(
@@ -371,3 +390,10 @@ def cmc_consistency(z_pred_1, z_pred_2, overlap_mask, embed_dim=768):
     cmc = CrossMaskConsistency(embed_dim=embed_dim)
     cmc = cmc.to(z_pred_1.device)
     return cmc(z_pred_1, z_pred_2, overlap_mask)
+
+
+def gac_explore(z_pred, grad_norms, embed_dim=768, gamma=0.01, tau_grad=1e-4, step=0):
+    """Gradient-allocated capacity loss — one function call."""
+    gac = GradientAllocatedCapacity(embed_dim=embed_dim, gamma=gamma, tau_grad=tau_grad)
+    gac = gac.to(z_pred.device)
+    return gac(z_pred, grad_norms, step=step)

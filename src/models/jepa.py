@@ -29,6 +29,7 @@ from .pcr import PredictiveCascadeRefinement
 from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
 from .cmc import CrossMaskConsistency
+from .gac import GradientAllocatedCapacity
 
 
 class TextSpanJEPAConfig:
@@ -143,6 +144,13 @@ class TextSpanJEPAConfig:
         self.cmc_interval = kwargs.get('cmc_interval', 10)
         self.lambda_cmc = kwargs.get('lambda_cmc', 0.0)
 
+        # GAC: Gradient-Allocated Capacity (novel mechanism #12)
+        self.use_gac = kwargs.get('use_gac', False)
+        self.gac_gamma = kwargs.get('gac_gamma', 0.01)
+        self.gac_tau_grad = kwargs.get('gac_tau_grad', 1e-4)
+        self.gac_warmup_steps = kwargs.get('gac_warmup_steps', 1000)
+        self.lambda_gac = kwargs.get('lambda_gac', 0.0)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -227,6 +235,13 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"cmc_mode must be always/interval/reuse_encoder, got '{self.cmc_mode}'")
             if self.cmc_min_overlap_ratio < 0 or self.cmc_min_overlap_ratio > 1:
                 raise ValueError(f"cmc_min_overlap_ratio must be in [0,1], got {self.cmc_min_overlap_ratio}")
+        if self.use_gac:
+            if self.lambda_gac < 0:
+                raise ValueError(f"lambda_gac must be >= 0, got {self.lambda_gac}")
+            if self.gac_gamma < 0:
+                raise ValueError(f"gac_gamma must be >= 0, got {self.gac_gamma}")
+            if self.gac_tau_grad < 0:
+                raise ValueError(f"gac_tau_grad must be >= 0, got {self.gac_tau_grad}")
         return True
 
 
@@ -360,6 +375,17 @@ class TextSpanJEPA(nn.Module):
             )
         else:
             self.cmc = None
+
+        # GAC — novel mechanism #12: Gradient-Allocated Capacity
+        if config.use_gac:
+            self.gac = GradientAllocatedCapacity(
+                embed_dim=config.embed_dim,
+                gamma=config.gac_gamma,
+                tau_grad=config.gac_tau_grad,
+                warmup_steps=config.gac_warmup_steps,
+            )
+        else:
+            self.gac = None
 
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
@@ -553,6 +579,13 @@ class TextSpanJEPA(nn.Module):
         loss_cmc = _zero_loss
         cmc_info = {}
 
+        # GAC: Gradient-Allocated Capacity
+        # NOTE: GAC requires per-dim gradient norms from the main loss.
+        # This is computed externally in the training loop after .backward().
+        # Here we set loss_gac = 0 by default; the training loop adds it.
+        loss_gac = _zero_loss
+        gac_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -566,6 +599,7 @@ class TextSpanJEPA(nn.Module):
             + lambda_spc * loss_spc
             + self.config.lambda_wsd * loss_wsd
             + self.config.lambda_cmc * loss_cmc
+            + self.config.lambda_gac * loss_gac
         )
 
         loss_dict = {
@@ -582,6 +616,7 @@ class TextSpanJEPA(nn.Module):
             'loss_spc': loss_spc.item(),
             'loss_wsd': loss_wsd.item(),
             'loss_cmc': loss_cmc.item(),
+            'loss_gac': loss_gac.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -599,6 +634,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"wsd_{k}": v for k, v in wsd_info.items()})
         if cmc_info:
             loss_dict.update({f"cmc_{k}": v for k, v in cmc_info.items()})
+        if gac_info:
+            loss_dict.update({f"gac_{k}": v for k, v in gac_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 

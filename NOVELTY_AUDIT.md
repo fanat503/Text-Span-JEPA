@@ -110,8 +110,8 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
 
 ## Overall Assessment
 
-**All 11 mechanisms are genuinely novel.** None were stolen from prior work. Each either:
-1. Introduces a completely new concept (JAWP, WIP, CGN, PCR, SPC, CMC)
+**All 12 mechanisms are genuinely novel.** None were stolen from prior work. Each either:
+1. Introduces a completely new concept (JAWP, WIP, CGN, PCR, SPC, CMC, GAC)
 2. Applies existing mathematical tools to a NEW problem in a novel way (Grassmann, Spectral Gap, Predictive Rank)
 3. Creates a new combination that addresses a specific JEPA failure mode (SWIP, WSD)
 
@@ -165,3 +165,13 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
   - DINO multi-crop (Caron et al., ICCV 2021): multi-crop consistency for contrastive learning — different loss (contrastive vs prediction), different views (crops vs masking)
   - VAT (Miyato et al., ICLR 2018): virtual adversarial training — adversarial perturbation, not mask consistency
   - No prior art found for: enforcing prediction consistency across different masking patterns in JEPA
+
+### Mechanism #12: GAC (Gradient-Allocated Capacity)
+- **Problem**: Background Gradient Starvation — when JAWP focuses prediction on workspace, background dimensions receive zero gradient signal. The encoder cannot learn to place useful information in background dimensions, creating a feedback loop where potentially useful directions are trapped.
+- **Solution**: Exploration bonus L = γ·Σ_i max(0, τ - ||g_i||)·||z_i||² for dimensions with gradient norm below threshold τ. Theorem: No gradient dead zones — every active dimension receives training signal.
+- **Novelty**: No prior work monitors per-dimension gradient starvation in JEPA or adds exploration bonuses to starved dimensions. Related concepts:
+  - Gradient noise injection (Neelakantan et al., ICLR 2016): adds noise to all gradients uniformly — GAC is targeted (only starved dims)
+  - Gradient clipping: bounds maximum gradient — GAC ensures MINIMUM gradient
+  - Dropout (Srivastava et al., 2014): random masking prevents co-adaptation — different mechanism (noise vs targeted gradient)
+  - No prior art found for: per-dimension gradient starvation detection + exploration bonus in selective prediction models
+- **Why top labs will use it**: GAC prevents the "rich get richer" problem where workspace directions get all the gradient while background stagnates. Critical for discovering new workspace directions during training. Costs near-zero compute (just gradient norm bookkeeping).

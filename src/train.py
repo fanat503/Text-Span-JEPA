@@ -112,6 +112,11 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
             state['cmc_running_consistency'] = model.cmc.running_consistency.clone()
             state['cmc_running_overlap_ratio'] = model.cmc.running_overlap_ratio.clone()
             state['cmc_total_cmc_steps'] = model.cmc.total_cmc_steps.clone()
+        # GAC running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'gac') and model.gac is not None:
+            state['gac_running_grad_norms'] = model.gac.running_grad_norms.clone()
+            state['gac_running_starved_fraction'] = model.gac.running_starved_fraction.clone()
+            state['gac_total_gac_steps'] = model.gac.total_gac_steps.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -196,6 +201,13 @@ def load_checkpoint(path, model, optimizer, scaler,
                 model.cmc.running_overlap_ratio.copy_(checkpoint['cmc_running_overlap_ratio'])
             if 'cmc_total_cmc_steps' in checkpoint and hasattr(model, 'cmc') and model.cmc is not None:
                 model.cmc.total_cmc_steps.copy_(checkpoint['cmc_total_cmc_steps'])
+            # GAC running statistics restoration
+            if 'gac_running_grad_norms' in checkpoint and hasattr(model, 'gac') and model.gac is not None:
+                model.gac.running_grad_norms.copy_(checkpoint['gac_running_grad_norms'])
+            if 'gac_running_starved_fraction' in checkpoint and hasattr(model, 'gac') and model.gac is not None:
+                model.gac.running_starved_fraction.copy_(checkpoint['gac_running_starved_fraction'])
+            if 'gac_total_gac_steps' in checkpoint and hasattr(model, 'gac') and model.gac is not None:
+                model.gac.total_gac_steps.copy_(checkpoint['gac_total_gac_steps'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])
