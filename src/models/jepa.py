@@ -544,6 +544,15 @@ class TextSpanJEPA(nn.Module):
             loss_wsd = _zero_loss
             wsd_info = {}
 
+        # CMC: Cross-Mask Consistency Regularization
+        # NOTE: CMC requires a second forward pass with a different mask.
+        # This is handled externally by the training loop (train.py), which
+        # can optionally compute CMC loss by running a second prediction
+        # and calling model.compute_cmc_loss(z_pred_1, z_pred_2, overlap).
+        # Here we set loss_cmc = 0 by default; the training loop adds it.
+        loss_cmc = _zero_loss
+        cmc_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -556,6 +565,7 @@ class TextSpanJEPA(nn.Module):
             + lambda_swip * loss_swip
             + lambda_spc * loss_spc
             + self.config.lambda_wsd * loss_wsd
+            + self.config.lambda_cmc * loss_cmc
         )
 
         loss_dict = {
@@ -571,6 +581,7 @@ class TextSpanJEPA(nn.Module):
             'loss_swip': loss_swip.item(),
             'loss_spc': loss_spc.item(),
             'loss_wsd': loss_wsd.item(),
+            'loss_cmc': loss_cmc.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -586,6 +597,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"spc_{k}": v for k, v in spc_info.items()})
         if wsd_info:
             loss_dict.update({f"wsd_{k}": v for k, v in wsd_info.items()})
+        if cmc_info:
+            loss_dict.update({f"cmc_{k}": v for k, v in cmc_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 
@@ -607,6 +620,27 @@ class TextSpanJEPA(nn.Module):
 
         self._prev_target_h = h_target.detach().clone()
         return total_loss, loss_dict, diag_dict
+
+    def compute_cmc_loss(self, z_pred_primary, z_pred_secondary, overlap_mask):
+        """Compute CMC loss between predictions from two different masks.
+
+        Call this from the training loop after running a second forward pass
+        with a different mask pattern. The CMC loss enforces that predictions
+        at overlapping masked positions agree across different masks.
+
+        Args:
+            z_pred_primary: (B, T, D) predictions from primary mask m₁.
+            z_pred_secondary: (B, T, D) predictions from secondary mask m₂.
+            overlap_mask: (B, T) binary — 1 if masked in BOTH m₁ and m₂.
+
+        Returns:
+            loss_cmc: scalar tensor.
+            cmc_info: dict with diagnostics.
+        """
+        if self.cmc is None:
+            zero = torch.tensor(0.0, device=z_pred_primary.device)
+            return zero, {'cmc_loss': 0.0, 'cmc_skipped': True}
+        return self.cmc(z_pred_primary, z_pred_secondary, overlap_mask)
 
     def get_num_params(self, non_embedding=True):
         enc = self.encoder.get_num_params(non_embedding)

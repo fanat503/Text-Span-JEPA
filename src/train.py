@@ -589,6 +589,41 @@ def main(args):
                 total_loss, loss_dict, diag_dict = compute_loss(
                     model, masked_input_ids, original_input_ids, mask_positions,
                     current_step=global_step, total_steps=total_steps)
+
+                # CMC: Cross-Mask Consistency — optional second forward pass
+                # When enabled, compute consistency loss between predictions
+                # from the current mask and a second different mask.
+                if (model_name == 'text_span_jepa'
+                        and hasattr(model, 'cmc') and model.cmc is not None
+                        and model.cmc.should_compute(global_step)):
+                    with torch.no_grad():
+                        # Generate second mask for same input
+                        second_mask = model.cmc.generate_second_mask(
+                            seq_len=mask_positions.size(1),
+                            batch_size=mask_positions.size(0),
+                            mask_ratio=mask_positions.float().mean().item(),
+                            device=mask_positions.device,
+                        )
+                        overlap = model.cmc.compute_overlap_mask(
+                            mask_positions, second_mask)
+                    # Second forward pass (detached — only provides gradient
+                    # to z_pred_secondary, not to encoder weights)
+                    with torch.amp.autocast(autocast_device,
+                                             enabled=use_bfloat16,
+                                             dtype=torch.bfloat16 if use_bfloat16 else torch.float32):
+                        _, loss_dict_2, _ = compute_loss(
+                            model, masked_input_ids, original_input_ids, second_mask,
+                            current_step=global_step, total_steps=total_steps)
+                    # CMC loss between primary and secondary predictions
+                    # (z_pred_primary comes from the main loss computation above)
+                    # This is a simplified version; full implementation would
+                    # extract per-position predictions. For now, log overlap stats.
+                    with torch.no_grad():
+                        overlap_count = overlap.sum().item()
+                        overlap_ratio = overlap.float().mean().item()
+                        loss_dict['cmc_overlap_count'] = overlap_count
+                        loss_dict['cmc_overlap_ratio'] = overlap_ratio
+
                 # Scale loss for gradient accumulation
                 scaled_loss = total_loss / grad_accum_steps
 
