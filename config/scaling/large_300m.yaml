@@ -66,6 +66,14 @@ model:
   swip_k_workspace: null
   swip_target_variance: 1.0
   lambda_swip: 0.0
+  use_pcr: false
+  pcr_n_levels: 3
+  pcr_level_dims: null
+  pcr_warmup_steps: 1000
+  use_spc: false
+  spc_n_bands: 8
+  spc_init: dct
+  lambda_spc: 0.0
 optimization:
   ema:
   - 0.996

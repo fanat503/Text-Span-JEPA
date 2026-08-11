@@ -79,6 +79,11 @@ model:
   spc_n_bands: 8
   spc_init: dct
   lambda_spc: 0.0
+  # WSD: Workspace-Target Synchronization Drift (novel mechanism #10)
+  use_wsd: false
+  wsd_sync_interval: 100
+  wsd_ema_beta: 0.99
+  lambda_wsd: 0.0
   # SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA, 2025)
   lambda_sigreg: 0.0
   sigreg_n_sketches: 64

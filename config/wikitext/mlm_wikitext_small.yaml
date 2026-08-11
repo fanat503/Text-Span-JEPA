@@ -40,6 +40,20 @@ model:
   swip_k_workspace: null
   swip_target_variance: 1.0
   lambda_swip: 0.0
+  use_jawp: true
+  jawk_k_start: 1
+  jawk_k_end: null
+  jawk_curriculum_steps: 10000
+  jawk_alpha: 0.1
+  jawk_init: identity
+  use_pcr: false
+  pcr_n_levels: 3
+  pcr_level_dims: null
+  pcr_warmup_steps: 1000
+  use_spc: false
+  spc_n_bands: 8
+  spc_init: dct
+  lambda_spc: 0.0
 optimization:
   epochs: 30
   ipe_scale: 1.0

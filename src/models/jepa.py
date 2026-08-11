@@ -27,6 +27,7 @@ from .cgn import ContextualGatingNetwork
 from .swip import SWIPModule
 from .pcr import PredictiveCascadeRefinement
 from .spc import SpectralPredictiveCoding
+from .wsd import WorkspaceSyncDrift
 
 
 class TextSpanJEPAConfig:
@@ -126,6 +127,12 @@ class TextSpanJEPAConfig:
         self.spc_init = kwargs.get('spc_init', 'dct')
         self.lambda_spc = kwargs.get('lambda_spc', 0.0)
 
+        # WSD: Workspace-Target Synchronization Drift (novel mechanism #10)
+        self.use_wsd = kwargs.get('use_wsd', False)
+        self.wsd_sync_interval = kwargs.get('wsd_sync_interval', 100)
+        self.wsd_ema_beta = kwargs.get('wsd_ema_beta', 0.99)
+        self.lambda_wsd = kwargs.get('lambda_wsd', 0.0)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -198,6 +205,11 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"lambda_spc must be >= 0, got {self.lambda_spc}")
             if self.spc_init not in ('dct', 'random'):
                 raise ValueError(f"spc_init must be 'dct' or 'random', got '{self.spc_init}'")
+        if self.use_wsd:
+            if self.lambda_wsd < 0:
+                raise ValueError(f"lambda_wsd must be >= 0, got {self.lambda_wsd}")
+            if self.wsd_sync_interval < 1:
+                raise ValueError(f"wsd_sync_interval must be >= 1, got {self.wsd_sync_interval}")
         return True
 
 
@@ -307,6 +319,18 @@ class TextSpanJEPA(nn.Module):
             )
         else:
             self.spc = None
+
+        # WSD — novel mechanism #10: Workspace-Target Synchronization Drift
+        if config.use_wsd and config.use_jawp:
+            jawp_k = config.jawk_k_end or max(config.embed_dim // 10, 1)
+            self.wsd = WorkspaceSyncDrift(
+                embed_dim=config.embed_dim,
+                k=jawp_k,
+                sync_interval=config.wsd_sync_interval,
+                ema_beta=config.wsd_ema_beta,
+            )
+        else:
+            self.wsd = None
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -479,6 +503,17 @@ class TextSpanJEPA(nn.Module):
             loss_spc = _zero_loss
             spc_info = {}
 
+        # WSD: Workspace-Target Synchronization Drift
+        # Penalizes desynchronization between JAWP Q and target encoder workspace
+        if self.wsd is not None and self.jawp is not None:
+            k_active = int(self.jawp.active_k.item())
+            Q_ws = self.jawp.workspace_Q[:, :k_active]
+            loss_wsd, wsd_info = self.wsd.compute_drift(
+                Q_ws, h_target=h_target.detach(), step=current_step)
+        else:
+            loss_wsd = _zero_loss
+            wsd_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -490,6 +525,7 @@ class TextSpanJEPA(nn.Module):
             + lambda_cgn_ortho * loss_cgn_ortho
             + lambda_swip * loss_swip
             + lambda_spc * loss_spc
+            + self.config.lambda_wsd * loss_wsd
         )
 
         loss_dict = {
@@ -504,6 +540,7 @@ class TextSpanJEPA(nn.Module):
             'loss_cgn_ortho': loss_cgn_ortho.item(),
             'loss_swip': loss_swip.item(),
             'loss_spc': loss_spc.item(),
+            'loss_wsd': loss_wsd.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -517,6 +554,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"swip_{k}": v for k, v in swip_info.items()})
         if spc_info:
             loss_dict.update({f"spc_{k}": v for k, v in spc_info.items()})
+        if wsd_info:
+            loss_dict.update({f"wsd_{k}": v for k, v in wsd_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 
