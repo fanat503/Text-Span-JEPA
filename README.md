@@ -154,3 +154,20 @@ license
 -------
 
 apache 2.0
+
+novel mechanisms (9 total)
+--------------------------
+
+each mechanism addresses a specific failure mode of standard JEPA, with a mathematical guarantee:
+
+1. **JAWP** (Jacobian-Aligned Workspace Prediction) — predictor capacity waste. Courant-Fischer optimality: Q ∈ St(D,k) aligns with most predictable directions, not highest-variance.
+2. **WIP** (Workspace Information Preservation) — if I(f_exo; z_target) > 0, then span(Q_JAWP) contains non-trivial projection of f_exo. Theorem, not heuristic.
+3. **Spectral Gap Detection** — automatic k* from Marchenko-Pastur law + largest spectral gap in residual covariance.
+4. **Grassmann Workspace Optimization** — fiber projection on Gr(k,D), converges to Riemannian gradient flow.
+5. **Predictive Rank Regularization** — log-det barrier prevents rank collapse: L = -log det(Q^T Cov(z_pred) Q + εI).
+6. **CGN** (Contextual Gating Network) — suboptimal information routing. I(g_v ⊙ Z; Y) + I(g_m ⊙ Z; Y) ≥ I(Z; Y) when gates are orthogonal.
+7. **SWIP** (Selective Whitening with Info Preservation) — representation anisotropy. Whitens background, preserves workspace hierarchy. L = Σ(log λ_i - log σ²)² for i > k.
+8. **PCR** (Predictive Cascade Refinement) — information bottleneck. I(z_ctx; z_L) ≥ I(z_ctx; z_0) + Σ I(r_{l-1}; P_l r_{l-1}) with orthogonal P_l.
+9. **SPC** (Spectral Predictive Coding) — frequency-dependent information loss. Band-specific weights w_b ∝ σ²_b × ρ²_b allocate capacity proportional to information content per frequency band.
+
+all mechanisms are drop-in: 2-3 lines to add to any JEPA variant. see `src/models/mechanisms.py` for the MechanismBundle API.

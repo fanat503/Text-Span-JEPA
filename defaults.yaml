@@ -74,6 +74,11 @@ model:
   pcr_n_levels: 3
   pcr_level_dims: null
   pcr_warmup_steps: 1000
+  # SPC: Spectral Predictive Coding (novel mechanism #9)
+  use_spc: false
+  spc_n_bands: 8
+  spc_init: dct
+  lambda_spc: 0.0
   # SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA, 2025)
   lambda_sigreg: 0.0
   sigreg_n_sketches: 64

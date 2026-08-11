@@ -12,3 +12,4 @@ from .collapse import (
     CollapseDiagnostics,
 )
 from .cgn import ContextualGatingNetwork
+from .spc import SpectralPredictiveCoding

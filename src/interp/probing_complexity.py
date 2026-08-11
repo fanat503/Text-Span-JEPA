@@ -323,7 +323,7 @@ class LinguisticProbeTasks:
         Returns:
             dict ready for evaluate()
         """
-        depths = torch.tensor(depth_values, dtype=torch.float32)
+        depths = torch.tensor(depth_values, dtype=torch.float32) if not isinstance(depth_values, torch.Tensor) else depth_values.clone().detach().float()
         # Discretize into bins
         percentiles = torch.linspace(0, 100, n_bins + 1)[1:-1]
         bins = torch.tensor(

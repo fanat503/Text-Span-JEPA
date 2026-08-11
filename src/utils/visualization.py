@@ -873,3 +873,85 @@ def plot_swip_spectral_shaping(
     if save_path:
         fig.savefig(save_path)
     return fig, ax
+
+
+def plot_spc_band_analysis(
+    band_weights: np.ndarray,
+    band_residuals: np.ndarray,
+    band_predictabilities: Optional[np.ndarray] = None,
+    band_snrs: Optional[np.ndarray] = None,
+    title: str = 'SPC Band Analysis',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot SPC band analysis: weights, residuals, predictability, SNR.
+
+    Args:
+        band_weights: (B,) band weights.
+        band_residuals: (B,) per-band residual variance.
+        band_predictabilities: (B,) per-band predictability (optional).
+        band_snrs: (B,) per-band SNR (optional).
+        title: plot title.
+        save_path: if set, save to this path.
+        ax: matplotlib axes to plot on.
+
+    Returns:
+        (fig, ax) tuple.
+    """
+    if not _ensure_mpl():
+        return None, None
+    setup_style()
+
+    n_bands = len(band_weights)
+    x = np.arange(n_bands)
+
+    if ax is None:
+        fig, axes = _plt.subplots(2, 2, figsize=(8, 6))
+    else:
+        fig = ax.get_figure()
+        axes = ax
+
+    # Band weights
+    ax1 = axes[0, 0] if ax is None else axes[0]
+    bars = ax1.bar(x, band_weights, color='#4393c3', alpha=0.8)
+    ax1.axhline(1.0, color='gray', linestyle='--', linewidth=0.5)
+    ax1.set_xlabel('Band index')
+    ax1.set_ylabel('Weight')
+    ax1.set_title('Band Weights')
+
+    # Band residuals
+    ax2 = axes[0, 1] if ax is None else axes[1]
+    ax2.bar(x, band_residuals, color='#b2182b', alpha=0.8)
+    ax2.set_xlabel('Band index')
+    ax2.set_ylabel('Residual variance')
+    ax2.set_title('Per-Band Residual')
+
+    # Predictability
+    ax3 = axes[1, 0] if ax is None else axes[2]
+    if band_predictabilities is not None:
+        ax3.bar(x, band_predictabilities, color='#1b7837', alpha=0.8)
+        ax3.set_ylim(0, 1)
+        ax3.set_ylabel('Predictability (R²)')
+    else:
+        ax3.text(0.5, 0.5, 'N/A', transform=ax3.transAxes, ha='center')
+    ax3.set_xlabel('Band index')
+    ax3.set_title('Per-Band Predictability')
+
+    # SNR
+    ax4 = axes[1, 1] if ax is None else axes[3]
+    if band_snrs is not None:
+        ax4.bar(x, np.log10(np.array(band_snrs) + 1e-10),
+                color='#762a83', alpha=0.8)
+        ax4.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+        ax4.set_ylabel('SNR (log₁₀)')
+    else:
+        ax4.text(0.5, 0.5, 'N/A', transform=ax4.transAxes, ha='center')
+    ax4.set_xlabel('Band index')
+    ax4.set_title('Per-Band SNR')
+
+    fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, axes

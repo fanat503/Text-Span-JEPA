@@ -285,7 +285,7 @@ def _discretize(x, n_bins):
     """Discretize continuous values into bins."""
     try:
         bins = torch.linspace(x.min(), x.max() + 1e-8, n_bins + 1)
-        return torch.bucketize(x, bins[1:-1])  # bin indices
+        return torch.bucketize(x.contiguous(), bins[1:-1].contiguous())  # bin indices
     except Exception:
         return torch.zeros_like(x, dtype=torch.long)
 

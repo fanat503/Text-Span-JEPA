@@ -27,6 +27,7 @@ from .jawp import JAWPModule
 from .cgn import ContextualGatingNetwork
 from .swip import SWIPModule
 from .pcr import PredictiveCascadeRefinement
+from .spc import SpectralPredictiveCoding
 
 
 class MechanismBundle(nn.Module):
@@ -44,6 +45,7 @@ class MechanismBundle(nn.Module):
       6. CGN — contextual gating (information routing theorem)
       7. SWIP — selective whitening (log-eigenvalue matching)
       8. PCR — cascade refinement (cascade capacity theorem)
+      9. SPC — spectral predictive coding (information-proportional capacity)
 
     Usage:
         bundle = MechanismBundle.from_config(config)
@@ -78,6 +80,10 @@ class MechanismBundle(nn.Module):
         pcr_n_levels: int = 3,
         pcr_level_dims: Optional[list] = None,
         pcr_warmup_steps: int = 1000,
+        # SPC
+        use_spc: bool = False,
+        spc_n_bands: int = 8,
+        spc_init: str = 'dct',
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -85,6 +91,7 @@ class MechanismBundle(nn.Module):
         self.use_cgn = use_cgn
         self.use_swip = use_swip
         self.use_pcr = use_pcr
+        self.use_spc = use_spc
         self.lambda_predictive_rank = lambda_predictive_rank
 
         # Mechanism 1-5: JAWP (includes WIP, Spectral Gap, Grassmann, Predictive Rank)
@@ -134,6 +141,16 @@ class MechanismBundle(nn.Module):
         else:
             self.pcr = None
 
+        # Mechanism 9: SPC
+        if use_spc:
+            self.spc = SpectralPredictiveCoding(
+                embed_dim=embed_dim,
+                n_bands=spc_n_bands,
+                init=spc_init,
+            )
+        else:
+            self.spc = None
+
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
         """Create from a TextSpanJEPAConfig object."""
@@ -158,6 +175,9 @@ class MechanismBundle(nn.Module):
             pcr_n_levels=getattr(config, 'pcr_n_levels', 3),
             pcr_level_dims=getattr(config, 'pcr_level_dims', None),
             pcr_warmup_steps=getattr(config, 'pcr_warmup_steps', 1000),
+            use_spc=getattr(config, 'use_spc', False),
+            spc_n_bands=getattr(config, 'spc_n_bands', 8),
+            spc_init=getattr(config, 'spc_init', 'dct'),
         )
 
     def forward(
@@ -213,6 +233,12 @@ class MechanismBundle(nn.Module):
             info['swip_loss'] = swip_loss
             info.update({f'swip_{k}': v for k, v in swip_info.items()})
 
+        # SPC: spectral predictive coding
+        if self.spc is not None:
+            spc_loss, spc_info = self.spc(z_out, z_target)
+            info['spc_loss'] = spc_loss
+            info.update({f'spc_{k}': v for k, v in spc_info.items()})
+
         return z_out, info
 
     def retract(self):
@@ -225,6 +251,8 @@ class MechanismBundle(nn.Module):
             self.jawp.stiefel_retract()
         if self.pcr is not None:
             self.pcr.stiefel_retract()
+        if self.spc is not None:
+            self.spc.stiefel_retract()
 
     def compute_capacity_bound(self, z_pred: torch.Tensor, z_target: torch.Tensor) -> float:
         """Compute total theoretical information gain from all mechanisms.
@@ -330,3 +358,26 @@ def swip_whiten(z, embed_dim=768, k_workspace=25, target_variance=1.0):
                       target_variance=target_variance)
     swip = swip.to(z.device)
     return swip(z)
+
+
+def spc_loss(z_pred, z_target, embed_dim=768, n_bands=8, init='dct'):
+    """Spectral predictive coding loss — one function call.
+
+    Args:
+        z_pred: (..., D) predictor output.
+        z_target: (..., D) target encoder output (will be detached).
+        embed_dim: embedding dimension.
+        n_bands: number of frequency bands.
+        init: 'dct' (DCT-II basis) or 'random'.
+
+    Returns:
+        loss: scalar tensor.
+        info: dict with diagnostics.
+
+    Example:
+        loss, info = spc_loss(z_pred, z_target, n_bands=8)
+        loss.backward()
+    """
+    spc = SpectralPredictiveCoding(embed_dim=embed_dim, n_bands=n_bands, init=init)
+    spc = spc.to(z_pred.device)
+    return spc(z_pred, z_target)

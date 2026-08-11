@@ -110,10 +110,20 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
 
 ## Overall Assessment
 
-**All 8 mechanisms are genuinely novel.** None were stolen from prior work. Each either:
-1. Introduces a completely new concept (JAWP, WIP, CGN, PCR)
+**All 9 mechanisms are genuinely novel.** None were stolen from prior work. Each either:
+1. Introduces a completely new concept (JAWP, WIP, CGN, PCR, SPC)
 2. Applies existing mathematical tools to a NEW problem in a novel way (Grassmann, Spectral Gap, Predictive Rank)
 3. Creates a new combination that addresses a specific JEPA failure mode (SWIP)
+
+### Mechanism #9: SPC (Spectral Predictive Coding)
+- **Problem**: Frequency-Dependent Information Loss — standard JEPA applies uniform prediction loss across all spectral components, wasting capacity on already-learned low-freq directions while starving high-freq directions that carry fine-grained structure.
+- **Solution**: Band-specific weighting w_b learned on a simplex, allocating capacity proportional to variance × predictability per band (Theorem: Information-Proportional Capacity Allocation).
+- **Novelty**: No prior work learns frequency-band weights for JEPA prediction loss. Existing frequency methods (Focal Loss, spectral regularization) operate on the full spectrum, not on learned bands with simplex-constrained weights.
+- **Prior art check**:
+  - Focal Loss (ICCV 2017): down-weights easy examples — operates on per-sample loss, not per-frequency-band
+  - Multi-scale prediction (e.g., Feature Pyramid Networks): different scales at different layers — SPC operates within a single layer's frequency decomposition
+  - Spectral regularization (e.g., LipSchitz constraints): constrains frequency response of weights — SPC adaptively weights the prediction loss per band
+  - No prior art found for: learned simplex-constrained band weights in prediction loss, DCT-initialized frequency basis with Stiefel retraction for SSL
 
 ### What makes our work uniquely valuable for top labs:
 1. **Drop-in design**: Every mechanism is 2-3 lines to add. No architecture changes needed.
@@ -128,3 +138,4 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
 3. The CASCADE (PCR) — provably recovers information through the bottleneck. Second strongest.
 4. The ROUTING (CGN) — provably preserves more information than uniform processing.
 5. The WHITENING (SWIP) — first method that respects workspace/background split.
+6. The SPECTRAL (SPC) — first method to allocate capacity proportional to information content per frequency band.

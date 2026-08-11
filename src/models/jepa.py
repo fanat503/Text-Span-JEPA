@@ -26,6 +26,7 @@ from .jawp import JAWPModule
 from .cgn import ContextualGatingNetwork
 from .swip import SWIPModule
 from .pcr import PredictiveCascadeRefinement
+from .spc import SpectralPredictiveCoding
 
 
 class TextSpanJEPAConfig:
@@ -119,6 +120,12 @@ class TextSpanJEPAConfig:
         self.pcr_level_dims = kwargs.get('pcr_level_dims', None)
         self.pcr_warmup_steps = kwargs.get('pcr_warmup_steps', 1000)
 
+        # SPC: Spectral Predictive Coding (novel mechanism #9)
+        self.use_spc = kwargs.get('use_spc', False)
+        self.spc_n_bands = kwargs.get('spc_n_bands', 8)
+        self.spc_init = kwargs.get('spc_init', 'dct')
+        self.lambda_spc = kwargs.get('lambda_spc', 0.0)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -182,6 +189,15 @@ class TextSpanJEPAConfig:
                     raise ValueError(f"sum(pcr_level_dims)={total} cannot exceed embed_dim={self.embed_dim}")
             if self.pcr_warmup_steps < 0:
                 raise ValueError(f"pcr_warmup_steps must be >= 0, got {self.pcr_warmup_steps}")
+        if self.use_spc:
+            if self.embed_dim % self.spc_n_bands != 0:
+                raise ValueError(f"embed_dim={self.embed_dim} must be divisible by spc_n_bands={self.spc_n_bands}")
+            if self.spc_n_bands < 1:
+                raise ValueError(f"spc_n_bands must be >= 1, got {self.spc_n_bands}")
+            if self.lambda_spc < 0:
+                raise ValueError(f"lambda_spc must be >= 0, got {self.lambda_spc}")
+            if self.spc_init not in ('dct', 'random'):
+                raise ValueError(f"spc_init must be 'dct' or 'random', got '{self.spc_init}'")
         return True
 
 
@@ -281,6 +297,16 @@ class TextSpanJEPA(nn.Module):
             self.pcr.warmup_steps = config.pcr_warmup_steps
         else:
             self.pcr = None
+
+        # SPC — novel mechanism #9: Spectral Predictive Coding
+        if config.use_spc:
+            self.spc = SpectralPredictiveCoding(
+                embed_dim=config.embed_dim,
+                n_bands=config.spc_n_bands,
+                init=config.spc_init,
+            )
+        else:
+            self.spc = None
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -438,6 +464,21 @@ class TextSpanJEPA(nn.Module):
             loss_swip = _zero_loss
             swip_info = {}
 
+        # SPC: Spectral Predictive Coding — frequency-band-aware prediction
+        # Allocates capacity proportional to information content per band
+        lambda_spc = self.config.lambda_spc
+        if lambda_spc > 0 and self.spc is not None:
+            if valid_mask.any():
+                spc_z_pred = span_preds[:, :min_cols][combined_valid] if combined_valid.any() else span_preds.reshape(-1, span_preds.size(-1))
+                spc_z_target = target_gathered[:, :min_cols][combined_valid] if combined_valid.any() else h_target.detach().reshape(-1, h_target.size(-1))
+                loss_spc, spc_info = self.spc(spc_z_pred, spc_z_target)
+            else:
+                loss_spc = _zero_loss
+                spc_info = {}
+        else:
+            loss_spc = _zero_loss
+            spc_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -448,6 +489,7 @@ class TextSpanJEPA(nn.Module):
             + lambda_pred_rank * loss_pred_rank
             + lambda_cgn_ortho * loss_cgn_ortho
             + lambda_swip * loss_swip
+            + lambda_spc * loss_spc
         )
 
         loss_dict = {
@@ -461,6 +503,7 @@ class TextSpanJEPA(nn.Module):
             'loss_predictive_rank': loss_pred_rank.item(),
             'loss_cgn_ortho': loss_cgn_ortho.item(),
             'loss_swip': loss_swip.item(),
+            'loss_spc': loss_spc.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -472,6 +515,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"cgn_{k}": v for k, v in cgn_info.items()})
         if swip_info:
             loss_dict.update({f"swip_{k}": v for k, v in swip_info.items()})
+        if spc_info:
+            loss_dict.update({f"spc_{k}": v for k, v in spc_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 

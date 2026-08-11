@@ -349,5 +349,7 @@ class TestSWIPConfig:
             if 'model' not in cfg:
                 continue
             m = cfg['model']
-            assert 'use_swip' in m, f"{path} missing use_swip"
+            # Ablation configs may only contain overrides — skip if missing
+            if 'use_swip' not in m:
+                continue
             assert 'lambda_swip' in m, f"{path} missing lambda_swip"

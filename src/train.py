@@ -96,6 +96,12 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
         if model_name == 'text_span_jepa' and hasattr(model, 'pcr') and model.pcr is not None:
             state['pcr_workspace_Q'] = model.pcr.workspace_Q.data.clone()
             state['pcr_level_gates'] = [g.data.clone() for g in model.pcr.level_gates]
+        # SPC frequency basis and band weights — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'spc') and model.spc is not None:
+            state['spc_freq_basis'] = model.spc.freq_basis.data.clone()
+            state['spc_log_band_weights'] = model.spc.log_band_weights.data.clone()
+            state['spc_running_residual_vars'] = model.spc.running_residual_vars.clone()
+            state['spc_running_predictability'] = model.spc.running_predictability.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -157,6 +163,15 @@ def load_checkpoint(path, model, optimizer, scaler,
                 for i, g in enumerate(checkpoint['pcr_level_gates']):
                     if i < len(model.pcr.level_gates):
                         model.pcr.level_gates[i].data.copy_(g)
+            # SPC frequency basis and band weights restoration
+            if 'spc_freq_basis' in checkpoint and hasattr(model, 'spc') and model.spc is not None:
+                model.spc.freq_basis.data.copy_(checkpoint['spc_freq_basis'])
+            if 'spc_log_band_weights' in checkpoint and hasattr(model, 'spc') and model.spc is not None:
+                model.spc.log_band_weights.data.copy_(checkpoint['spc_log_band_weights'])
+            if 'spc_running_residual_vars' in checkpoint and hasattr(model, 'spc') and model.spc is not None:
+                model.spc.running_residual_vars.copy_(checkpoint['spc_running_residual_vars'])
+            if 'spc_running_predictability' in checkpoint and hasattr(model, 'spc') and model.spc is not None:
+                model.spc.running_predictability.copy_(checkpoint['spc_running_predictability'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])
@@ -580,6 +595,9 @@ def main(args):
                 # PCR Stiefel retraction — keeps cascade projection Q orthonormal
                 if model_name == 'text_span_jepa' and hasattr(model, 'pcr') and model.pcr is not None:
                     model.pcr.stiefel_retract()
+                # SPC Stiefel retraction — keeps frequency basis orthonormal
+                if model_name == 'text_span_jepa' and hasattr(model, 'spc') and model.spc is not None:
+                    model.spc.stiefel_retract()
 
             # EMA update
             if ema_scheduler is not None:
