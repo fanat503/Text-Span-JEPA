@@ -79,3 +79,8 @@ logging:
   folder: output/wikitext/mlm-small-100m/
   log_freq: 10
   write_tag: mlm_small_100m
+use_gac: false
+gac_gamma: 0.01
+gac_tau_grad: 0.0001
+gac_warmup_steps: 1000
+lambda_gac: 0.0

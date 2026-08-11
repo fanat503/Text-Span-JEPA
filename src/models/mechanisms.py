@@ -43,6 +43,7 @@ from .swip import SWIPModule
 from .pcr import PredictiveCascadeRefinement
 from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
+from .gac import GradientAllocatedCapacity
 from .cmc import CrossMaskConsistency
 
 

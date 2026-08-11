@@ -15,3 +15,4 @@ from .cgn import ContextualGatingNetwork
 from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
 from .cmc import CrossMaskConsistency
+from .gac import GradientAllocatedCapacity

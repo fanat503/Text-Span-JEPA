@@ -1,0 +1,6 @@
+# Ablation: GAC (Gradient-Allocated Capacity) ON
+model:
+  use_gac: true
+  gac_gamma: 0.01
+  gac_tau_grad: 0.0001
+  lambda_gac: 0.01

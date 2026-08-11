@@ -99,3 +99,8 @@ logging:
   folder: /kaggle/working/output/
   log_freq: 10
   write_tag: kaggle_t4
+use_gac: false
+gac_gamma: 0.01
+gac_tau_grad: 0.0001
+gac_warmup_steps: 1000
+lambda_gac: 0.0
