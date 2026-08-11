@@ -68,6 +68,10 @@ model:
   cgn_tau_end: 0.1
   cgn_anneal_steps: 10000
   lambda_cgn_ortho: 0.0
+  use_swip: false
+  swip_k_workspace: null
+  swip_target_variance: 1.0
+  lambda_swip: 0.0
 optimization:
   ema:
   - 0.996

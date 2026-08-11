@@ -24,6 +24,7 @@ from .sigreg import SIGReg, WeakSIGReg, VISReg
 from .jspace import JSpaceMetrics
 from .jawp import JAWPModule
 from .cgn import ContextualGatingNetwork
+from .swip import SWIPModule
 
 
 class TextSpanJEPAConfig:
@@ -105,6 +106,12 @@ class TextSpanJEPAConfig:
         self.cgn_anneal_steps = kwargs.get('cgn_anneal_steps', 10000)
         self.lambda_cgn_ortho = kwargs.get('lambda_cgn_ortho', 0.0)
 
+        # SWIP: Selective Whitening with Information Preservation (novel mechanism #7)
+        self.use_swip = kwargs.get('use_swip', False)
+        self.swip_k_workspace = kwargs.get('swip_k_workspace', None)
+        self.swip_target_variance = kwargs.get('swip_target_variance', 1.0)
+        self.lambda_swip = kwargs.get('lambda_swip', 0.0)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -152,6 +159,13 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"cgn temperatures must be > 0, got start={self.cgn_tau_start}, end={self.cgn_tau_end}")
             if self.lambda_cgn_ortho < 0:
                 raise ValueError(f"lambda_cgn_ortho must be >= 0, got {self.lambda_cgn_ortho}")
+        if self.use_swip:
+            if self.swip_k_workspace is not None and self.swip_k_workspace > self.embed_dim:
+                raise ValueError(f"swip_k_workspace={self.swip_k_workspace} cannot exceed embed_dim={self.embed_dim}")
+            if self.swip_target_variance <= 0:
+                raise ValueError(f"swip_target_variance must be > 0, got {self.swip_target_variance}")
+            if self.lambda_swip < 0:
+                raise ValueError(f"lambda_swip must be >= 0, got {self.lambda_swip}")
         return True
 
 
@@ -230,7 +244,16 @@ class TextSpanJEPA(nn.Module):
         else:
             self.cgn = None
 
-    @torch.no_grad()
+        # SWIP — novel mechanism #7: Selective Whitening with Information Preservation
+        if config.use_swip:
+            self.swip = SWIPModule(
+                embed_dim=config.embed_dim,
+                k_workspace=config.swip_k_workspace,
+                target_variance=config.swip_target_variance,
+                use_jawp_workspace=config.use_jawp,
+            )
+        else:
+            self.swip = None
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -357,6 +380,19 @@ class TextSpanJEPA(nn.Module):
         else:
             loss_cgn_ortho = _zero_loss
 
+        # SWIP: Selective Whitening with Information Preservation
+        # Whitens background noise while preserving workspace structure
+        lambda_swip = self.config.lambda_swip
+        if lambda_swip > 0 and self.swip is not None:
+            ws_Q = None
+            if self.jawp is not None:
+                k_active = int(self.jawp.active_k.item())
+                ws_Q = self.jawp.workspace_Q.data[:, :k_active]
+            loss_swip, swip_info = self.swip(h_online, workspace_Q=ws_Q)
+        else:
+            loss_swip = _zero_loss
+            swip_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -366,6 +402,7 @@ class TextSpanJEPA(nn.Module):
             + lambda_sigreg * loss_sigreg
             + lambda_pred_rank * loss_pred_rank
             + lambda_cgn_ortho * loss_cgn_ortho
+            + lambda_swip * loss_swip
         )
 
         loss_dict = {
@@ -378,6 +415,7 @@ class TextSpanJEPA(nn.Module):
             'loss_sigreg': loss_sigreg.item(),
             'loss_predictive_rank': loss_pred_rank.item(),
             'loss_cgn_ortho': loss_cgn_ortho.item(),
+            'loss_swip': loss_swip.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -387,6 +425,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"jawk_{k}": v for k, v in jawp_info.items()})
         if cgn_info:
             loss_dict.update({f"cgn_{k}": v for k, v in cgn_info.items()})
+        if swip_info:
+            loss_dict.update({f"swip_{k}": v for k, v in swip_info.items()})
 
         diag_dict = self.diagnostics.compute(h_online.detach(), h_target.detach(),
                                               prev_target_h=self._prev_target_h)
