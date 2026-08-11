@@ -69,6 +69,11 @@ model:
   swip_k_workspace: null
   swip_target_variance: 1.0
   lambda_swip: 0.0
+  # PCR: Predictive Cascade Refinement (novel mechanism #8)
+  use_pcr: false
+  pcr_n_levels: 3
+  pcr_level_dims: null
+  pcr_warmup_steps: 1000
   # SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA, 2025)
   lambda_sigreg: 0.0
   sigreg_n_sketches: 64

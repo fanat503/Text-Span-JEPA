@@ -7,6 +7,7 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from functools import partial
 
 
@@ -46,10 +47,15 @@ class Attention(nn.Module):
         # Micro-opt: fused reshape+permute avoids extra copy
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)  # micro-opt: unbind instead of indexing (avoids contiguity issues)
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        # Micro-opt: use scaled_dot_product_attention when available (PyTorch 2.0+)
+        if hasattr(F, 'scaled_dot_product_attention'):
+            x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p if self.training else 0.0)
+            x = x.transpose(1, 2).reshape(B, N, C)
+        else:
+            attn = (q @ k.transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -183,7 +189,10 @@ class TextSpanJEPLEncoder(nn.Module):
 
         intermediates = []
         for blk in self.blocks:
-            x = blk(x)
+            if self.gradient_checkpointing and self.training:
+                x = torch.utils.checkpoint.checkpoint(blk, x, use_reentrant=False)
+            else:
+                x = blk(x)
             if return_intermediates:
                 intermediates.append(x)
 

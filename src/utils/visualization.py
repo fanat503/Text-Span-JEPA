@@ -714,3 +714,162 @@ def save_figure(fig, path: str, formats: Tuple[str, ...] = ('png', 'pdf')):
         out_path = f'{base}.{fmt}'
         fig.savefig(out_path, format=fmt, bbox_inches='tight', dpi=300)
         logger.info(f'Saved: {out_path}')
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Spectral waterfall plot
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_spectral_waterfall(
+    eigenvalues_by_step: List[np.ndarray],
+    steps: Sequence[int],
+    highlight_k: Optional[int] = None,
+    title: str = 'Spectral Waterfall',
+    save_path: Optional[str] = None,
+):
+    """Waterfall plot showing eigenvalue spectrum evolution over training.
+
+    Each row is the eigenvalue spectrum at a different training step,
+    stacked vertically to show how the spectrum evolves.
+
+    Args:
+        eigenvalues_by_step: list of 1-D arrays, one per step.
+            Each array is eigenvalues in descending order.
+        steps: corresponding step numbers.
+        highlight_k: optional workspace dimension to mark.
+        title: plot title.
+        save_path: save path.
+    """
+    if not _ensure_mpl():
+        return
+    fig, ax = _plt.subplots(figsize=(8, 5))
+
+    n_steps = len(eigenvalues_by_step)
+    cmap = _plt.get_cmap('viridis', n_steps)
+
+    for i, (eigs, step) in enumerate(zip(eigenvalues_by_step, steps)):
+        x = np.arange(len(eigs))
+        color = cmap(i / max(n_steps - 1, 1))
+        alpha = 0.3 + 0.7 * (i / max(n_steps - 1, 1))
+        ax.semilogy(x, eigs, color=color, alpha=alpha, linewidth=0.8)
+
+    if highlight_k is not None and len(eigenvalues_by_step) > 0:
+        D = len(eigenvalues_by_step[-1])
+        if 0 < highlight_k < D:
+            ax.axvline(highlight_k - 0.5, color='#b2182b', linestyle='--',
+                       linewidth=1, label=f'k={highlight_k}')
+
+    ax.set_xlabel('Eigenvalue index')
+    ax.set_ylabel('Eigenvalue (log scale)')
+    ax.set_title(title)
+    if highlight_k is not None:
+        ax.legend(fontsize=8)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Information flow diagram
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_information_flow(
+    level_information: Dict[str, float],
+    title: str = 'PCR Information Flow',
+    save_path: Optional[str] = None,
+):
+    """Bar chart showing information flow through PCR cascade levels.
+
+    Visualizes the Cascade Capacity theorem: each level adds
+    complementary information through orthogonal subspaces.
+
+    Args:
+        level_information: dict mapping level name to information
+            value (in nats or bits). Keys like 'level_0', 'level_1', etc.
+        title: plot title.
+        save_path: save path.
+    """
+    if not _ensure_mpl():
+        return
+    fig, ax = _plt.subplots(figsize=(6, 3.5))
+
+    keys = sorted(level_information.keys())
+    values = [level_information[k] for k in keys]
+    colors = ['#2166ac', '#4393c3', '#762a83', '#d6604d', '#b2182b']
+
+    bars = ax.bar(range(len(keys)), values,
+                  color=[colors[i % len(colors)] for i in range(len(keys))],
+                  alpha=0.8)
+
+    # Cumulative line
+    cumsum = np.cumsum(values)
+    ax2 = ax.twinx()
+    ax2.plot(range(len(keys)), cumsum, color='#b2182b', marker='o',
+             linewidth=1.5, label='Cumulative')
+    ax2.set_ylabel('Cumulative information (nats)')
+
+    ax.set_xticks(range(len(keys)))
+    ax.set_xticklabels(keys, fontsize=8, rotation=45, ha='right')
+    ax.set_ylabel('Information per level (nats)')
+    ax.set_title(title)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SWIP spectral shaping plot
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_swip_spectral_shaping(
+    eigenvalues_before: np.ndarray,
+    eigenvalues_after: np.ndarray,
+    k_workspace: int,
+    target_variance: float = 1.0,
+    title: str = 'SWIP Spectral Shaping',
+    save_path: Optional[str] = None,
+):
+    """Plot eigenvalue spectrum before and after SWIP.
+
+    Shows how SWIP whitens background while preserving workspace.
+
+    Args:
+        eigenvalues_before: eigenvalues before SWIP (descending).
+        eigenvalues_after: eigenvalues after SWIP (descending).
+        k_workspace: workspace dimension.
+        target_variance: target background variance.
+        title: plot title.
+        save_path: save path.
+    """
+    if not _ensure_mpl():
+        return
+    fig, ax = _plt.subplots(figsize=(7, 3.5))
+
+    x = np.arange(len(eigenvalues_before))
+    ax.semilogy(x, eigenvalues_before, color='#2166ac', alpha=0.6,
+                label='Before SWIP', linewidth=1.5)
+    ax.semilogy(x, eigenvalues_after, color='#b2182b',
+                label='After SWIP', linewidth=1.5)
+
+    # Workspace boundary
+    ax.axvline(k_workspace - 0.5, color='#762a83', linestyle='--',
+               linewidth=1, label=f'k={k_workspace}')
+    # Target variance line
+    ax.axhline(target_variance, color='#4393c3', linestyle=':',
+               linewidth=1, label=f'target σ²={target_variance}')
+
+    # Shade workspace region
+    ax.fill_between(x[:k_workspace], 1e-10,
+                    np.maximum(eigenvalues_after[:k_workspace], 1e-10),
+                    alpha=0.1, color='#b2182b')
+
+    ax.set_xlabel('Eigenvalue index')
+    ax.set_ylabel('Eigenvalue (log scale)')
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax

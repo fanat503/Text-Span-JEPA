@@ -92,6 +92,10 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
             state['cgn_gate_logits_visible'] = model.cgn.gate_logits_visible.data.clone()
             state['cgn_gate_logits_masked'] = model.cgn.gate_logits_masked.data.clone()
             state['cgn_total_steps'] = model.cgn.total_steps.clone()
+        # PCR projection Q — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'pcr') and model.pcr is not None:
+            state['pcr_workspace_Q'] = model.pcr.workspace_Q.data.clone()
+            state['pcr_level_gates'] = [g.data.clone() for g in model.pcr.level_gates]
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -146,6 +150,13 @@ def load_checkpoint(path, model, optimizer, scaler,
                 model.cgn.gate_logits_masked.data.copy_(checkpoint['cgn_gate_logits_masked'])
             if 'cgn_total_steps' in checkpoint and hasattr(model, 'cgn') and model.cgn is not None:
                 model.cgn.total_steps.copy_(checkpoint['cgn_total_steps'])
+            # PCR projection Q restoration
+            if 'pcr_workspace_Q' in checkpoint and hasattr(model, 'pcr') and model.pcr is not None:
+                model.pcr.workspace_Q.data.copy_(checkpoint['pcr_workspace_Q'])
+            if 'pcr_level_gates' in checkpoint and hasattr(model, 'pcr') and model.pcr is not None:
+                for i, g in enumerate(checkpoint['pcr_level_gates']):
+                    if i < len(model.pcr.level_gates):
+                        model.pcr.level_gates[i].data.copy_(g)
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])
@@ -566,6 +577,9 @@ def main(args):
                 # Ref: Absil, Mahony & Sepulchre (2008), §4.1.
                 if model_name == 'text_span_jepa' and hasattr(model, 'jawp') and model.jawp is not None:
                     model.jawp.stiefel_retract()
+                # PCR Stiefel retraction — keeps cascade projection Q orthonormal
+                if model_name == 'text_span_jepa' and hasattr(model, 'pcr') and model.pcr is not None:
+                    model.pcr.stiefel_retract()
 
             # EMA update
             if ema_scheduler is not None:

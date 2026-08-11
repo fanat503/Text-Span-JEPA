@@ -25,6 +25,7 @@ from .jspace import JSpaceMetrics
 from .jawp import JAWPModule
 from .cgn import ContextualGatingNetwork
 from .swip import SWIPModule
+from .pcr import PredictiveCascadeRefinement
 
 
 class TextSpanJEPAConfig:
@@ -112,6 +113,12 @@ class TextSpanJEPAConfig:
         self.swip_target_variance = kwargs.get('swip_target_variance', 1.0)
         self.lambda_swip = kwargs.get('lambda_swip', 0.0)
 
+        # PCR: Predictive Cascade Refinement (novel mechanism #8)
+        self.use_pcr = kwargs.get('use_pcr', False)
+        self.pcr_n_levels = kwargs.get('pcr_n_levels', 3)
+        self.pcr_level_dims = kwargs.get('pcr_level_dims', None)
+        self.pcr_warmup_steps = kwargs.get('pcr_warmup_steps', 1000)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -166,6 +173,15 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"swip_target_variance must be > 0, got {self.swip_target_variance}")
             if self.lambda_swip < 0:
                 raise ValueError(f"lambda_swip must be >= 0, got {self.lambda_swip}")
+        if self.use_pcr:
+            if self.pcr_n_levels < 1:
+                raise ValueError(f"pcr_n_levels must be >= 1, got {self.pcr_n_levels}")
+            if self.pcr_level_dims is not None:
+                total = sum(self.pcr_level_dims)
+                if total > self.embed_dim:
+                    raise ValueError(f"sum(pcr_level_dims)={total} cannot exceed embed_dim={self.embed_dim}")
+            if self.pcr_warmup_steps < 0:
+                raise ValueError(f"pcr_warmup_steps must be >= 0, got {self.pcr_warmup_steps}")
         return True
 
 
@@ -254,6 +270,17 @@ class TextSpanJEPA(nn.Module):
             )
         else:
             self.swip = None
+
+        # PCR — novel mechanism #8: Predictive Cascade Refinement
+        if config.use_pcr:
+            self.pcr = PredictiveCascadeRefinement(
+                embed_dim=config.embed_dim,
+                n_levels=config.pcr_n_levels,
+                level_dims=config.pcr_level_dims,
+            )
+            self.pcr.warmup_steps = config.pcr_warmup_steps
+        else:
+            self.pcr = None
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -298,6 +325,24 @@ class TextSpanJEPA(nn.Module):
         span_preds, num_masked, valid_mask, future_losses, future_preds = self.predictor(
             h_online, mask_positions, token_embeds_online, h_target.detach()
         )
+
+        # PCR: Predictive Cascade Refinement — refine predictions in orthogonal subspaces
+        # Bypasses information bottleneck of single-pass prediction (Theorem: Cascade Capacity)
+        pcr_info = {}
+        if self.pcr is not None and valid_mask.any():
+            target_gathered_pcr, _, target_valid_pcr = TextSpanJPAPredictor._gather_masked(
+                h_target.detach(), mask_positions
+            )
+            min_cols_pcr = min(valid_mask.size(1), target_valid_pcr.size(1))
+            combined_valid_pcr = valid_mask[:, :min_cols_pcr] & target_valid_pcr[:, :min_cols_pcr]
+            if combined_valid_pcr.any():
+                span_preds_valid_pcr = span_preds[:, :min_cols_pcr][combined_valid_pcr]
+                target_valid_pcr_flat = target_gathered_pcr[:, :min_cols_pcr][combined_valid_pcr]
+                span_preds_refined, pcr_info = self.pcr(
+                    span_preds_valid_pcr, target_valid_pcr_flat, step=current_step
+                )
+                # Write refined predictions back
+                span_preds[:, :min_cols_pcr][combined_valid_pcr] = span_preds_refined
 
         # Zero-loss helper: avoids creating unnecessary computation graph nodes.
         # h_online.sum() * 0.0 still requires grad through h_online.
@@ -427,6 +472,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"cgn_{k}": v for k, v in cgn_info.items()})
         if swip_info:
             loss_dict.update({f"swip_{k}": v for k, v in swip_info.items()})
+        if pcr_info:
+            loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 
         diag_dict = self.diagnostics.compute(h_online.detach(), h_target.detach(),
                                               prev_target_h=self._prev_target_h)
