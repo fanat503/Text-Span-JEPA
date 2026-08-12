@@ -397,3 +397,10 @@ def gac_explore(z_pred, grad_norms, embed_dim=768, gamma=0.01, tau_grad=1e-4, st
     gac = GradientAllocatedCapacity(embed_dim=embed_dim, gamma=gamma, tau_grad=tau_grad)
     gac = gac.to(z_pred.device)
     return gac(z_pred, grad_norms, step=step)
+
+
+def sta_align(z, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
+    """Spectral transport alignment loss — one function call."""
+    sta = SpectralTransportAlignment(embed_dim=embed_dim, eta=eta, ema_beta=ema_beta)
+    sta = sta.to(z.device)
+    return sta(z, step=step)
