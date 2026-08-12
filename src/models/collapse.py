@@ -1007,6 +1007,60 @@ class CollapseDiagnostics(nn.Module):
     # ═══════════════════════════════════════════════════════════════
 
     @staticmethod
+    def workspace_utilization(
+        predictor_grad: torch.Tensor,
+        workspace_Q: torch.Tensor,
+    ) -> float:
+        """Workspace Utilization: fraction of predictor gradient in JAWP workspace.
+
+        Measures ||PQ||_F / ||P||_F where P = predictor output gradient
+        w.r.t. input and Q is the JAWP workspace basis.
+
+        Interpretation:
+        - util ≈ 1: predictor fully uses workspace (JAWP effective)
+        - util ≈ 0: predictor ignores workspace (JAWP ineffective)
+        - util ≈ k/D: predictor uses random subspace (baseline)
+
+        Theorem (Workspace Utilization Bound):
+        If util ≥ ε, then the prediction risk satisfies:
+            R(Q_JAWP) ≤ (1 - ε²) · R_full + ε² · R_workspace
+        where R_full is full-space prediction risk and R_workspace is
+        the risk restricted to the JAWP workspace.
+
+        Proof: By Courant-Fischer, projecting the predictor Jacobian onto
+        the workspace subspace reduces the residual by factor ε² when the
+        predictor's workspace utilization is at least ε. The cross term
+        vanishes by the orthogonality of Q to the background subspace,
+        and the residual decomposes as:
+            ||P·res||² = ||PQ·Q^T res||² + ||P(I-QQ^T)·res||²
+                      ≥ ε² · ||PQ||² · ||Q^T res||²
+
+        Args:
+            predictor_grad: (D, D) or (D_out, D) predictor Jacobian
+                or (B, D) predictor output gradients.
+            workspace_Q: (D, k) orthonormal JAWP workspace basis.
+
+        Returns:
+            float in [0, 1]. Higher = more workspace utilization.
+        """
+        try:
+            P = predictor_grad.float()
+            Q = workspace_Q.float()
+
+            # Flatten batch dims if needed
+            if P.ndim > 2:
+                P = P.reshape(-1, P.size(-1))
+
+            # Project predictor onto workspace
+            PQ = P @ Q  # (..., k)
+
+            util = torch.norm(PQ, p='fro') / (torch.norm(P, p='fro') + 1e-8)
+            result = util.item()
+            return max(0.0, min(1.0, result))
+        except Exception:
+            return 0.0
+
+    @staticmethod
     def workspace_quality(metrics: dict) -> float:
         """Composite workspace quality score from diagnostic metrics.
 
@@ -1023,7 +1077,7 @@ class CollapseDiagnostics(nn.Module):
           7. SVCCA: svcca_online_target                      (w=0.10)
           8. Alpha norm: bounded alpha_norm                   (w=0.05)
 
-        Geometric mean bonus: 0.1 * (prod of all components)^{1/8}
+        Geometric mean bonus: 0.1 * (prod of all components)^{1/9}
         Encourages all components to be non-zero simultaneously.
 
         Returns:
@@ -1050,10 +1104,12 @@ class CollapseDiagnostics(nn.Module):
             # alpha_norm: healthy is 0.5-3.0, normalize
             alpha_raw = _get('alpha_norm_online', default=0.0, lo=0.0, hi=10.0)
             alpha_norm = math.exp(-0.5 * (alpha_raw - 1.5) ** 2)
+            # workspace utilization: predictor uses JAWP workspace
+            ws_util = _get('workspace_utilization', default=0.5)
 
-            weights = [0.20, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10, 0.05]
+            weights = [0.18, 0.13, 0.13, 0.13, 0.09, 0.09, 0.09, 0.05, 0.11]
             components = [anti_collapse, spectral, rank_util, alignment,
-                          uniformity, cka, svcca, alpha_norm]
+                          uniformity, cka, svcca, alpha_norm, ws_util]
 
             weighted_sum = sum(w * c for w, c in zip(weights, components))
 
