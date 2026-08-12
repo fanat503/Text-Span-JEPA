@@ -664,8 +664,12 @@ class TextSpanJEPA(nn.Module):
             sta_info = {}
 
         # PUC: Prediction Uncertainty Calibration
+        # Applied to predictor output (span_preds) to prevent overconfident predictions
         if self.puc is not None:
-            loss_puc, puc_info = self.puc(h_online, z_target=h_target, step=current_step)
+            if valid_mask.any() and span_preds.size(0) > 0 and span_preds.size(1) > 0:
+                loss_puc, puc_info = self.puc(span_preds, z_target=h_target, step=current_step)
+            else:
+                loss_puc, puc_info = self.puc(h_online, z_target=h_target, step=current_step)
         else:
             loss_puc = _zero_loss
             puc_info = {}
