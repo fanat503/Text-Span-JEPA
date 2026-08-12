@@ -461,6 +461,7 @@ def spc_loss(z_pred, z_target, embed_dim=768, n_bands=8, init='dct'):
 
 def wsd_drift(Q_jawp, z_target, embed_dim=768, k=77, sync_interval=100):
     """Workspace-target synchronization drift — one function call."""
+    k = min(k, embed_dim)  # k cannot exceed embed_dim
     wsd = WorkspaceSyncDrift(embed_dim=embed_dim, k=k, sync_interval=sync_interval)
     wsd = wsd.to(Q_jawp.device)
     return wsd.compute_drift(Q_jawp, z_target, step=0)
