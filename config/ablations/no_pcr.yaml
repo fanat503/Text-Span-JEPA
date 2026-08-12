@@ -1,0 +1,5 @@
+# Ablation: PCR OFF (control for predictive cascade refinement)
+# Compare against full config with use_pcr=true to measure PCR contribution
+# Expected: higher prediction error, especially for positions far from context
+model:
+  use_pcr: false

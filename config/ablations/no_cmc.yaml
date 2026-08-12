@@ -1,0 +1,5 @@
+# Ablation: CMC OFF (control for cross-mask consistency)
+# Without CMC, predictions under different masks may be inconsistent
+model:
+  use_cmc: false
+  lambda_cmc: 0.0

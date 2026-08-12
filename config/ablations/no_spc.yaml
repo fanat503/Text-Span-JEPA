@@ -1,0 +1,5 @@
+# Ablation: SPC OFF (control for spectral predictive coding)
+# Without SPC, prediction loss is uniform across frequency bands
+model:
+  use_spc: false
+  lambda_spc: 0.0

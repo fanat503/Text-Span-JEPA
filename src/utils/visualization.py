@@ -1075,3 +1075,100 @@ def plot_cmc_consistency(
     if save_path:
         fig.savefig(save_path)
     return fig, axes
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  STA spectral transport alignment plot
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_sta_spectral_alignment(
+    steps,
+    w1_values,
+    spectral_gaps=None,
+    davis_kahan_bounds=None,
+    running_w1=None,
+    title='STA: Spectral Transport Alignment',
+    ax=None,
+    save_path=None,
+):
+    """Plot STA spectral alignment metrics over training.
+
+    Shows W1 distance, spectral gap, and Davis-Kahan bound.
+    """
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    steps = np.array(steps)
+    w1_values = np.array(w1_values)
+
+    ax.plot(steps, w1_values, color='#e41a1c', alpha=0.3,
+            label='Instantaneous W1')
+    if running_w1 is not None:
+        ax.plot(steps, np.array(running_w1),
+                color='#e41a1c', linewidth=2, label='Running avg W1')
+
+    if davis_kahan_bounds is not None:
+        ax2 = ax.twinx()
+        ax2.plot(steps, np.array(davis_kahan_bounds),
+                 color='#377eb8', linewidth=1.5, linestyle='--',
+                 label='Davis-Kahan bound')
+        ax2.set_ylabel('Workspace drift bound (d_Gr)', color='#377eb8')
+        ax2.tick_params(axis='y', labelcolor='#377eb8')
+
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('W1 distance (spectral drift)')
+    ax.set_title(title)
+    ax.legend(fontsize=8, loc='upper left')
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+def plot_gac_starved_fraction(
+    steps,
+    starved_fractions,
+    running_starved=None,
+    mean_grad_norms=None,
+    title='GAC: Gradient Starvation Monitor',
+    ax=None,
+    save_path=None,
+):
+    """Plot GAC starved fraction over training."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    steps = np.array(steps)
+    starved_fractions = np.array(starved_fractions)
+
+    ax.plot(steps, starved_fractions, color='#ff7f00', alpha=0.3,
+            label='Starved fraction')
+    if running_starved is not None:
+        ax.plot(steps, np.array(running_starved),
+                color='#ff7f00', linewidth=2, label='Running avg')
+    ax.axhline(0.5, color='gray', linestyle=':', linewidth=0.5,
+               label='50% threshold')
+
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Starved fraction')
+    ax.set_ylim(0, 1)
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax

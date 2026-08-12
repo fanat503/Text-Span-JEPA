@@ -1,0 +1,6 @@
+# Ablation: SWIP OFF (control for selective whitening)
+# Compare against full config with use_swip=true to measure SWIP contribution
+# Expected: higher background anisotropy, workspace-background distinction less sharp
+model:
+  use_swip: false
+  lambda_swip: 0.0

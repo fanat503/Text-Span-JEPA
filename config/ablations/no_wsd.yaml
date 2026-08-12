@@ -1,0 +1,5 @@
+# Ablation: WSD OFF (control for workspace-target sync drift)
+# Without WSD, JAWP workspace Q may become stale relative to target encoder
+model:
+  use_wsd: false
+  lambda_wsd: 0.0

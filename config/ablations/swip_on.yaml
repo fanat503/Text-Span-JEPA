@@ -1,0 +1,8 @@
+# Ablation: SWIP ON (selective whitening with information preservation)
+# Whitens background dimensions while preserving workspace eigenvalue hierarchy
+model:
+  use_jawp: true
+  use_swip: true
+  swip_k_workspace: null
+  swip_target_variance: 1.0
+  lambda_swip: 0.01

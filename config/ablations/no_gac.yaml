@@ -1,0 +1,5 @@
+# Ablation: GAC OFF (control for gradient-allocated capacity)
+# Without GAC, background dimensions may receive zero gradient
+model:
+  use_gac: false
+  lambda_gac: 0.0
