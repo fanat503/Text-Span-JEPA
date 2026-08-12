@@ -1,7 +1,7 @@
 # Copyright 2026 Text-Span JEPA Authors
 # Licensed under the Apache License, Version 2.0
 #
-# Convenience API: One-line access to all 11 novel mechanisms.
+# Convenience API: One-line access to all 13 novel mechanisms.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 #  USAGE (3 lines to upgrade any JEPA with all mechanisms)
@@ -45,10 +45,11 @@ from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
 from .gac import GradientAllocatedCapacity
 from .cmc import CrossMaskConsistency
+from .sta import SpectralTransportAlignment
 
 
 class MechanismBundle(nn.Module):
-    """All 11 Text-Span JEPA mechanisms in one convenient module.
+    """All 13 Text-Span JEPA mechanisms in one convenient module.
 
     Drop-in upgrade for ANY JEPA variant:
       I-JEPA, V-JEPA, C-JEPA, TD-JEPA, LeJEPA, etc.
@@ -106,6 +107,10 @@ class MechanismBundle(nn.Module):
         gac_gamma: float = 0.01,
         gac_tau_grad: float = 1e-4,
         gac_warmup_steps: int = 1000,
+        # STA
+        use_sta: bool = False,
+        sta_eta: float = 0.01,
+        sta_ema_beta: float = 0.999,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -117,6 +122,7 @@ class MechanismBundle(nn.Module):
         self.use_wsd = use_wsd
         self.use_cmc = use_cmc
         self.use_gac = use_gac
+        self.use_sta = use_sta
         self.lambda_predictive_rank = lambda_predictive_rank
 
         # Mechanism 1-5: JAWP
@@ -197,6 +203,14 @@ class MechanismBundle(nn.Module):
         else:
             self.gac = None
 
+        # Mechanism 13: STA
+        if use_sta:
+            self.sta = SpectralTransportAlignment(
+                embed_dim=embed_dim, eta=sta_eta, ema_beta=sta_ema_beta,
+            )
+        else:
+            self.sta = None
+
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
         """Create from a TextSpanJEPAConfig object."""
@@ -237,6 +251,9 @@ class MechanismBundle(nn.Module):
             gac_gamma=getattr(config, 'gac_gamma', 0.01),
             gac_tau_grad=getattr(config, 'gac_tau_grad', 1e-4),
             gac_warmup_steps=getattr(config, 'gac_warmup_steps', 1000),
+            use_sta=getattr(config, 'use_sta', False),
+            sta_eta=getattr(config, 'sta_eta', 0.01),
+            sta_ema_beta=getattr(config, 'sta_ema_beta', 0.999),
         )
 
     def forward(
@@ -292,6 +309,12 @@ class MechanismBundle(nn.Module):
             wsd_loss, wsd_info = self.wsd.compute_drift(Q_jawp, z_target, step=step)
             info['wsd_loss'] = wsd_loss
             info.update({f'wsd_{k}': v for k, v in wsd_info.items()})
+
+        # STA
+        if self.sta is not None:
+            sta_loss, sta_info = self.sta(z_out, step=step)
+            info['sta_loss'] = sta_loss
+            info.update({f'sta_{k}': v for k, v in sta_info.items()})
 
         return z_out, info
 
