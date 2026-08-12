@@ -1,0 +1,9 @@
+# Ablation: RDC ON — representation drift compensation active
+# Tests H11: RDC should reduce orthogonal drift ratio
+# Pendharkar et al. (2026): JEPA discards exogenous features; RDC mitigates
+model:
+  use_rdc: true
+  rdc_eta: 0.01
+  rdc_ema_beta: 0.999
+  rdc_warmup_steps: 500
+  lambda_rdc: 0.1

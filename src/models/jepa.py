@@ -32,6 +32,7 @@ from .cmc import CrossMaskConsistency
 from .gac import GradientAllocatedCapacity
 from .sta import SpectralTransportAlignment
 from .puc import PredictionUncertaintyCalibration
+from .rdc import RepresentationDriftCompensation
 
 
 class TextSpanJEPAConfig:
@@ -167,6 +168,14 @@ class TextSpanJEPAConfig:
         self.puc_warmup_steps = kwargs.get('puc_warmup_steps', 500)
         self.lambda_sta = kwargs.get('lambda_sta', 0.0)
         self.lambda_puc = kwargs.get('lambda_puc', 0.0)
+
+        # RDC: Representation Drift Compensation (novel mechanism #15)
+        self.use_rdc = kwargs.get('use_rdc', False)
+        self.rdc_eta = kwargs.get('rdc_eta', 0.01)
+        self.rdc_ema_beta = kwargs.get('rdc_ema_beta', 0.999)
+        self.rdc_warmup_steps = kwargs.get('rdc_warmup_steps', 500)
+        self.rdc_k_workspace = kwargs.get('rdc_k_workspace', None)
+        self.lambda_rdc = kwargs.get('lambda_rdc', 0.0)
 
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
@@ -436,6 +445,18 @@ class TextSpanJEPA(nn.Module):
         else:
             self.puc = None
 
+        # RDC — novel mechanism #15: Representation Drift Compensation
+        if config.use_rdc:
+            self.rdc = RepresentationDriftCompensation(
+                embed_dim=config.embed_dim,
+                eta=config.rdc_eta,
+                ema_beta=config.rdc_ema_beta,
+                warmup_steps=config.rdc_warmup_steps,
+                k_workspace=config.rdc_k_workspace,
+            )
+        else:
+            self.rdc = None
+
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -649,6 +670,18 @@ class TextSpanJEPA(nn.Module):
             loss_puc = _zero_loss
             puc_info = {}
 
+        # RDC: Representation Drift Compensation
+        # Uses running z_previous buffer — no external state needed
+        if self.rdc is not None:
+            ws_Q_rdc = None
+            if self.jawp is not None:
+                k_active_rdc = int(self.jawp.active_k.item())
+                ws_Q_rdc = self.jawp.workspace_Q.data[:, :k_active_rdc]
+            loss_rdc, rdc_info = self.rdc(h_online, workspace_Q=ws_Q_rdc, step=current_step)
+        else:
+            loss_rdc = _zero_loss
+            rdc_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -665,6 +698,7 @@ class TextSpanJEPA(nn.Module):
             + self.config.lambda_gac * loss_gac
             + self.config.lambda_sta * loss_sta
             + self.config.lambda_puc * loss_puc
+            + self.config.lambda_rdc * loss_rdc
         )
 
         loss_dict = {
@@ -684,6 +718,7 @@ class TextSpanJEPA(nn.Module):
             'loss_gac': loss_gac.item(),
             'loss_sta': loss_sta.item(),
             'loss_puc': loss_puc.item(),
+            'loss_rdc': loss_rdc.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -707,6 +742,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"sta_{k}": v for k, v in sta_info.items()})
         if puc_info:
             loss_dict.update({f"puc_{k}": v for k, v in puc_info.items()})
+        if rdc_info:
+            loss_dict.update({f"rdc_{k}": v for k, v in rdc_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 

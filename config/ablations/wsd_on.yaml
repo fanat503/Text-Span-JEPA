@@ -13,3 +13,9 @@ model:
   sta_warmup_steps: 500
   sta_update_interval: 10
   lambda_sta: 0.0
+  use_rdc: false
+  rdc_eta: 0.01
+  rdc_ema_beta: 0.999
+  rdc_warmup_steps: 500
+  rdc_k_workspace: null
+  lambda_rdc: 0.0

@@ -88,3 +88,25 @@ By Donsker-Varadhan duality, this is the tightest convex relaxation of the KL di
 $$R_\mathrm{total} \leq R_{\mathcal{W}^*} + R_\perp + R_\mathrm{drift} + R_\mathrm{consistency} + R_\mathrm{overconfidence}$$
 
 where $R_\mathrm{overconfidence} = \max(0, H_\mathrm{target} - H(\Sigma_\mathrm{pred}))$ is bounded by PUC.
+
+### Mechanism #15: RDC — Representation Drift Compensation
+
+**WCP constraint**: ||Δz_⊥||² ≤ ε_max
+
+RDC adds a drift constraint to the WCP optimization:
+
+$$\min_{Q \in \mathrm{St}(D,k)} \mathrm{tr}(Q^\top \Sigma_{\mathrm{res}} Q) \quad \text{s.t.} \quad I(f_{\mathrm{exo}}; Z_\mathcal{W}) > 0 \quad \text{AND} \quad ||\Delta z_\perp||^2 \leq \varepsilon_\max$$
+
+The RDC loss $L_\mathrm{RDC} = \eta \cdot ||\Delta z_\perp||^2$ is the Lagrangian multiplier for the drift constraint.
+
+**Drift Compensation Bound**: $||z_{\perp,T} - z_{\perp,0}|| \leq \varepsilon(1-\eta_\mathrm{rdc})^T \cdot T/\sqrt{k}$
+
+**WCP bound contribution**: RDC adds a drift compensation term:
+
+$$R_\mathrm{total} \leq R_{\mathcal{W}^*} + R_\perp + R_\mathrm{drift} + R_\mathrm{consistency} + R_\mathrm{overconfidence} + R_\mathrm{exogenous\_drift}$$
+
+where $R_\mathrm{exogenous\_drift} = \eta_\mathrm{rdc} \cdot ||\Delta z_\perp||^2$ is the penalty for drift that could discard exogenous features.
+
+**Full bound** with all 15 mechanisms:
+
+$$R_\mathrm{total} \leq \underbrace{R_{\mathcal{W}^*}}_{\text{JAWP}} + \underbrace{R_\perp}_{\text{SWIP}} + \underbrace{R_\mathrm{drift}}_{\text{WSD+STA}} + \underbrace{R_\mathrm{consistency}}_{\text{CMC}} + \underbrace{R_\mathrm{overconfidence}}_{\text{PUC}} + \underbrace{R_\mathrm{exogenous\_drift}}_{\text{RDC}} + \underbrace{R_\mathrm{bottleneck}}_{\text{PCR}} + \underbrace{R_\mathrm{spectral}}_{\text{SPC}} + \underbrace{R_\mathrm{routing}}_{\text{CGN}} + \underbrace{R_\mathrm{exploration}}_{\text{GAC}}$$

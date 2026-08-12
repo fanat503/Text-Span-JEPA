@@ -101,6 +101,12 @@ model:
   puc_ema_beta: 0.999
   puc_warmup_steps: 500
   lambda_puc: 0.0
+  use_rdc: false
+  rdc_eta: 0.01
+  rdc_ema_beta: 0.999
+  rdc_warmup_steps: 500
+  rdc_k_workspace: null
+  lambda_rdc: 0.0
 optimization:
   ema:
   - 0.996

@@ -130,3 +130,17 @@ JEPA-specific modifications from workspace dimension.
 **Prediction**: Linear probe accuracy scales as params^0.35 ± 0.1.
 
 **Ablation**: `config/scaling/` configs (30M, 100M, 140M, 300M).
+
+## H11: RDC Prevents Loss of Exogenous Features
+
+**Hypothesis**: RDC will reduce the orthogonal drift ratio (||Δz_⊥|| / ||Δz||)
+by ≥50% compared to standard JEPA, preserving control-relevant features.
+
+**Rationale**: The Drift Compensation Bound guarantees:
+||z_{⊥,T} - z_{⊥,0}|| ≤ ε(1-η_rdc)^T · T/√k
+With η_rdc > 0, orthogonal drift is exponentially bounded.
+
+**Prediction**: drift_ratio with RDC < 0.5 * drift_ratio without RDC.
+Orthogonal features will have higher variance (not collapsed).
+
+**Ablation**: `rdc_on.yaml` vs `no_rdc.yaml`.

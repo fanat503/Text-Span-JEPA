@@ -16,3 +16,6 @@ from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
 from .cmc import CrossMaskConsistency
 from .gac import GradientAllocatedCapacity
+from .sta import SpectralTransportAlignment
+from .puc import PredictionUncertaintyCalibration
+from .rdc import RepresentationDriftCompensation

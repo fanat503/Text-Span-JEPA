@@ -1,7 +1,7 @@
 # Copyright 2026 Text-Span JEPA Authors
 # Licensed under the Apache License, Version 2.0
 #
-# Convenience API: One-line access to all 13 novel mechanisms.
+# Convenience API: One-line access to all 14 novel mechanisms.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 #  USAGE (3 lines to upgrade any JEPA with all mechanisms)
@@ -28,6 +28,10 @@
 #    9.  SPC   — spectral predictive coding (info-proportional capacity)
 #    10. WSD   — workspace-target sync drift (drift bound theorem)
 #    11. CMC   — cross-mask consistency (stability theorem)
+#    12. GAC   — gradient-allocated capacity (no dead zones theorem)
+#    13. STA   — spectral transport alignment (Davis-Kahan + Wasserstein-1)
+#    14. PUC   — prediction uncertainty calibration (minimax optimality)
+#    15. RDC   — representation drift compensation (drift compensation bound)
 #
 #  You can also use individual mechanisms:
 #    from src.models.mechanisms import jawp_loss, cgn_gate, pcr_refine, ...
@@ -48,8 +52,12 @@ from .cmc import CrossMaskConsistency
 from .sta import SpectralTransportAlignment
 
 
+from .puc import PredictionUncertaintyCalibration
+from .rdc import RepresentationDriftCompensation
+
+
 class MechanismBundle(nn.Module):
-    """All 13 Text-Span JEPA mechanisms in one convenient module.
+    """All 15 Text-Span JEPA mechanisms in one convenient module.
 
     Drop-in upgrade for ANY JEPA variant:
       I-JEPA, V-JEPA, C-JEPA, TD-JEPA, LeJEPA, etc.
@@ -111,6 +119,17 @@ class MechanismBundle(nn.Module):
         use_sta: bool = False,
         sta_eta: float = 0.01,
         sta_ema_beta: float = 0.999,
+        # PUC
+        use_puc: bool = False,
+        puc_eta: float = 0.01,
+        puc_ema_beta: float = 0.999,
+        puc_warmup_steps: int = 500,
+        # RDC
+        use_rdc: bool = False,
+        rdc_eta: float = 0.01,
+        rdc_ema_beta: float = 0.999,
+        rdc_warmup_steps: int = 500,
+        rdc_k_workspace: Optional[int] = None,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -123,6 +142,8 @@ class MechanismBundle(nn.Module):
         self.use_cmc = use_cmc
         self.use_gac = use_gac
         self.use_sta = use_sta
+        self.use_puc = use_puc
+        self.use_rdc = use_rdc
         self.lambda_predictive_rank = lambda_predictive_rank
 
         # Mechanism 1-5: JAWP
@@ -211,6 +232,24 @@ class MechanismBundle(nn.Module):
         else:
             self.sta = None
 
+        # Mechanism 14: PUC
+        if use_puc:
+            self.puc = PredictionUncertaintyCalibration(
+                embed_dim=embed_dim, eta=puc_eta, ema_beta=puc_ema_beta,
+                warmup_steps=puc_warmup_steps,
+            )
+        else:
+            self.puc = None
+
+        # Mechanism 15: RDC
+        if use_rdc:
+            self.rdc = RepresentationDriftCompensation(
+                embed_dim=embed_dim, eta=rdc_eta, ema_beta=rdc_ema_beta,
+                warmup_steps=rdc_warmup_steps, k_workspace=rdc_k_workspace,
+            )
+        else:
+            self.rdc = None
+
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
         """Create from a TextSpanJEPAConfig object."""
@@ -254,6 +293,15 @@ class MechanismBundle(nn.Module):
             use_sta=getattr(config, 'use_sta', False),
             sta_eta=getattr(config, 'sta_eta', 0.01),
             sta_ema_beta=getattr(config, 'sta_ema_beta', 0.999),
+            use_puc=getattr(config, 'use_puc', False),
+            puc_eta=getattr(config, 'puc_eta', 0.01),
+            puc_ema_beta=getattr(config, 'puc_ema_beta', 0.999),
+            puc_warmup_steps=getattr(config, 'puc_warmup_steps', 500),
+            use_rdc=getattr(config, 'use_rdc', False),
+            rdc_eta=getattr(config, 'rdc_eta', 0.01),
+            rdc_ema_beta=getattr(config, 'rdc_ema_beta', 0.999),
+            rdc_warmup_steps=getattr(config, 'rdc_warmup_steps', 500),
+            rdc_k_workspace=getattr(config, 'rdc_k_workspace', None),
         )
 
     def forward(
@@ -315,6 +363,16 @@ class MechanismBundle(nn.Module):
             sta_loss, sta_info = self.sta(z_out, step=step)
             info['sta_loss'] = sta_loss
             info.update({f'sta_{k}': v for k, v in sta_info.items()})
+
+        # PUC
+        if self.puc is not None:
+            puc_loss, puc_info = self.puc(z_out, step=step)
+            info['puc_loss'] = puc_loss
+            info.update({f'puc_{k}': v for k, v in puc_info.items()})
+
+        # RDC (requires z_previous from external state — typically returns 0 loss
+        # in forward(); call compute_rdc_loss separately with z_previous)
+        # RDC loss is computed externally like GAC/CMC
 
         return z_out, info
 
@@ -435,3 +493,10 @@ def puc_calibrate(z_pred, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
     puc = PredictionUncertaintyCalibration(embed_dim=embed_dim, eta=eta, ema_beta=ema_beta)
     puc = puc.to(z_pred.device)
     return puc(z_pred, step=step)
+
+
+def rdc_compensate(z_current, z_previous, workspace_Q, embed_dim=768, eta=0.01, step=0):
+    """Representation drift compensation loss — one function call."""
+    rdc = RepresentationDriftCompensation(embed_dim=embed_dim, eta=eta)
+    rdc = rdc.to(z_current.device)
+    return rdc(z_current, z_previous=z_previous, workspace_Q=workspace_Q, step=step)

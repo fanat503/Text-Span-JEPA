@@ -117,6 +117,24 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
             state['gac_running_grad_norms'] = model.gac.running_grad_norms.clone()
             state['gac_running_starved_fraction'] = model.gac.running_starved_fraction.clone()
             state['gac_total_gac_steps'] = model.gac.total_gac_steps.clone()
+        # STA running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'sta') and model.sta is not None:
+            state['sta_running_spectrum'] = model.sta.running_spectrum.clone()
+            state['sta_running_transport_cost'] = model.sta.running_transport_cost.clone()
+            state['sta_total_sta_steps'] = model.sta.total_steps.clone()
+        # PUC running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'puc') and model.puc is not None:
+            state['puc_running_mean'] = model.puc.running_mean.clone()
+            state['puc_running_eigenvalues'] = model.puc.running_eigenvalues.clone()
+            state['puc_proj_vectors'] = model.puc.proj_vectors.clone()
+            state['puc_total_steps'] = model.puc.total_steps.clone()
+        # RDC running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'rdc') and model.rdc is not None:
+            state['rdc_z_previous'] = model.rdc.z_previous.clone()
+            state['rdc_workspace_Q'] = model.rdc.workspace_Q.clone()
+            state['rdc_running_drift_norm'] = model.rdc.running_drift_norm.clone()
+            state['rdc_running_drift_ratio'] = model.rdc.running_drift_ratio.clone()
+            state['rdc_total_steps'] = model.rdc.total_steps.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -208,6 +226,33 @@ def load_checkpoint(path, model, optimizer, scaler,
                 model.gac.running_starved_fraction.copy_(checkpoint['gac_running_starved_fraction'])
             if 'gac_total_gac_steps' in checkpoint and hasattr(model, 'gac') and model.gac is not None:
                 model.gac.total_gac_steps.copy_(checkpoint['gac_total_gac_steps'])
+            # STA running statistics restoration
+            if 'sta_running_spectrum' in checkpoint and hasattr(model, 'sta') and model.sta is not None:
+                model.sta.running_spectrum.copy_(checkpoint['sta_running_spectrum'])
+            if 'sta_running_transport_cost' in checkpoint and hasattr(model, 'sta') and model.sta is not None:
+                model.sta.running_transport_cost.copy_(checkpoint['sta_running_transport_cost'])
+            if 'sta_total_sta_steps' in checkpoint and hasattr(model, 'sta') and model.sta is not None:
+                model.sta.total_steps.copy_(checkpoint['sta_total_sta_steps'])
+            # PUC running statistics restoration
+            if 'puc_running_mean' in checkpoint and hasattr(model, 'puc') and model.puc is not None:
+                model.puc.running_mean.copy_(checkpoint['puc_running_mean'])
+            if 'puc_running_eigenvalues' in checkpoint and hasattr(model, 'puc') and model.puc is not None:
+                model.puc.running_eigenvalues.copy_(checkpoint['puc_running_eigenvalues'])
+            if 'puc_proj_vectors' in checkpoint and hasattr(model, 'puc') and model.puc is not None:
+                model.puc.proj_vectors.copy_(checkpoint['puc_proj_vectors'])
+            if 'puc_total_steps' in checkpoint and hasattr(model, 'puc') and model.puc is not None:
+                model.puc.total_steps.copy_(checkpoint['puc_total_steps'])
+            # RDC running statistics restoration
+            if 'rdc_z_previous' in checkpoint and hasattr(model, 'rdc') and model.rdc is not None:
+                model.rdc.z_previous.copy_(checkpoint['rdc_z_previous'])
+            if 'rdc_workspace_Q' in checkpoint and hasattr(model, 'rdc') and model.rdc is not None:
+                model.rdc.workspace_Q.copy_(checkpoint['rdc_workspace_Q'])
+            if 'rdc_running_drift_norm' in checkpoint and hasattr(model, 'rdc') and model.rdc is not None:
+                model.rdc.running_drift_norm.copy_(checkpoint['rdc_running_drift_norm'])
+            if 'rdc_running_drift_ratio' in checkpoint and hasattr(model, 'rdc') and model.rdc is not None:
+                model.rdc.running_drift_ratio.copy_(checkpoint['rdc_running_drift_ratio'])
+            if 'rdc_total_steps' in checkpoint and hasattr(model, 'rdc') and model.rdc is not None:
+                model.rdc.total_steps.copy_(checkpoint['rdc_total_steps'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])

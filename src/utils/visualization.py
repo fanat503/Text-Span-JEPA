@@ -1172,3 +1172,137 @@ def plot_gac_starved_fraction(
     if save_path:
         fig.savefig(save_path)
     return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  PUC: Overconfidence timeline
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_puc_overconfidence_timeline(
+    steps: Sequence,
+    overconfidence_scores: Sequence,
+    entropy_values: Optional[Sequence] = None,
+    target_entropy: Optional[float] = None,
+    title: str = 'PUC Overconfidence Timeline',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot PUC overconfidence and entropy over training.
+
+    Args:
+        steps: training step indices.
+        overconfidence_scores: PUC overconfidence metric per step.
+        entropy_values: estimated entropy per step (optional).
+        target_entropy: target entropy threshold (horizontal line).
+        title: plot title.
+        save_path: path to save figure.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(1, 1, figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    import numpy as np
+    steps = np.array(steps)
+    overconfidence_scores = np.array(overconfidence_scores)
+
+    ax.plot(steps, overconfidence_scores, color='#e41a1c', alpha=0.5,
+            label='Overconfidence')
+    # Running average
+    if len(overconfidence_scores) > 10:
+        kernel = np.ones(10) / 10
+        running = np.convolve(overconfidence_scores, kernel, mode='same')
+        ax.plot(steps, running, color='#e41a1c', linewidth=2,
+                label='Running avg')
+    ax.axhline(0.0, color='green', linestyle=':', linewidth=1,
+               label='Calibrated (0)')
+
+    if entropy_values is not None and target_entropy is not None:
+        ax2 = ax.twinx()
+        entropy_arr = np.array(entropy_values)
+        ax2.plot(steps, entropy_arr, color='#377eb8', alpha=0.5,
+                 label='Entropy')
+        ax2.axhline(target_entropy, color='#377eb8', linestyle='--',
+                     linewidth=1, label='H_target')
+        ax2.set_ylabel('Entropy', color='#377eb8')
+        ax2.tick_params(axis='y', labelcolor='#377eb8')
+        ax2.legend(fontsize=8, loc='upper right')
+
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Overconfidence score')
+    ax.set_title(title)
+    ax.legend(fontsize=8, loc='upper left')
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  RDC: Orthogonal drift ratio timeline
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_rdc_drift_ratio(
+    steps: Sequence,
+    drift_ratios: Sequence,
+    ortho_drift_norms: Optional[Sequence] = None,
+    workspace_drift_norms: Optional[Sequence] = None,
+    title: str = 'RDC Orthogonal Drift Ratio',
+    save_path: Optional[str] = None,
+    ax=None,
+):
+    """Plot RDC drift ratio and drift norms over training.
+
+    Args:
+        steps: training step indices.
+        drift_ratios: ||Δz_⊥||/||Δz|| per step (should decrease with RDC).
+        ortho_drift_norms: ||Δz_⊥|| per step (optional).
+        workspace_drift_norms: ||Δz_∥|| per step (optional).
+        title: plot title.
+        save_path: path to save figure.
+        ax: existing axes.
+    """
+    if not _ensure_mpl():
+        return
+    if ax is None:
+        fig, ax = _plt.subplots(1, 1, figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    import numpy as np
+    steps = np.array(steps)
+    drift_ratios = np.array(drift_ratios)
+
+    ax.plot(steps, drift_ratios, color='#984ea3', alpha=0.4,
+            label='Drift ratio')
+    if len(drift_ratios) > 10:
+        kernel = np.ones(10) / 10
+        running = np.convolve(drift_ratios, kernel, mode='same')
+        ax.plot(steps, running, color='#984ea3', linewidth=2,
+                label='Running avg')
+    ax.axhline(0.5, color='gray', linestyle=':', linewidth=0.5,
+               label='50% threshold')
+
+    if ortho_drift_norms is not None and workspace_drift_norms is not None:
+        ax2 = ax.twinx()
+        ax2.plot(steps, np.array(ortho_drift_norms), color='#e41a1c',
+                 alpha=0.4, label='||Δz_⊥||')
+        ax2.plot(steps, np.array(workspace_drift_norms), color='#4daf4a',
+                 alpha=0.4, label='||Δz_∥||')
+        ax2.set_ylabel('Drift norm')
+        ax2.legend(fontsize=8, loc='upper right')
+
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Orthogonal drift ratio')
+    ax.set_ylim(0, 1)
+    ax.set_title(title)
+    ax.legend(fontsize=8, loc='upper left')
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax

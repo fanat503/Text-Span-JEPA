@@ -11,3 +11,9 @@ model:
   gac_tau_grad: 0.0001
   gac_warmup_steps: 1000
   lambda_gac: 0.0
+  use_rdc: false
+  rdc_eta: 0.01
+  rdc_ema_beta: 0.999
+  rdc_warmup_steps: 500
+  rdc_k_workspace: null
+  lambda_rdc: 0.0
