@@ -16,3 +16,12 @@ model:
   lambda_cmc: 0.0
   lambda_gac: 0.0
   lambda_sta: 0.0
+  use_jawp: false
+  use_cgn: false
+  use_swip: false
+  use_pcr: false
+  use_spc: false
+  use_wsd: false
+  use_cmc: false
+  use_gac: false
+  use_sta: false

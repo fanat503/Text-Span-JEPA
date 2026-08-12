@@ -97,6 +97,10 @@ model:
   lambda_spc: 0.0
   lambda_wsd: 0.0
   lambda_cmc: 0.0
+  use_pcr: false
+  use_spc: false
+  use_wsd: false
+  use_cmc: false
 optimization:
   ema:
   - 0.996
