@@ -100,6 +100,19 @@ model:
   # J-Space: Workspace metrics (Anthropic, 2026)
   jspace_variance_threshold: 0.10
   jspace_k_workspace: 25
+  # GAC: Gradient-Allocated Capacity (novel mechanism #12)
+  use_gac: false
+  gac_gamma: 0.01
+  gac_tau_grad: 0.0001
+  gac_warmup_steps: 1000
+  lambda_gac: 0.0
+  # STA: Spectral Transport Alignment (novel mechanism #13)
+  use_sta: false
+  sta_eta: 0.01
+  sta_ema_beta: 0.999
+  sta_warmup_steps: 500
+  sta_update_interval: 10
+  lambda_sta: 0.0
 
 optimization:
   ema: [0.996, 1.0]
@@ -117,16 +130,3 @@ logging:
   folder: output/
   log_freq: 10
   write_tag: text_span_jepa
-  # GAC: Gradient-Allocated Capacity (novel mechanism #12)
-  use_gac: false
-  gac_gamma: 0.01
-  gac_tau_grad: 0.0001
-  gac_warmup_steps: 1000
-  lambda_gac: 0.0
-  # STA: Spectral Transport Alignment (novel mechanism #13)
-  use_sta: false
-  sta_eta: 0.01
-  sta_ema_beta: 0.999
-  sta_warmup_steps: 500
-  sta_update_interval: 10
-  lambda_sta: 0.0
