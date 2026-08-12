@@ -165,19 +165,29 @@ class GradientAllocatedCapacity(nn.Module):
             zero = torch.tensor(0.0, device=z_pred.device)
             return zero, {'gac_loss': 0.0, 'gac_warmup': True}
 
+        # Ensure grad_norms is (D,) per-dimension
+        # If grad_norms has extra batch/time dims, aggregate to per-dim mean
+        gn = grad_norms.detach()
+        if gn.ndim > 1:
+            # Aggregate: mean over all dims except last
+            gn = gn.reshape(-1, D).mean(dim=0)  # (D,)
+        elif gn.ndim == 0:
+            # Scalar broadcast to all dims
+            gn = gn.expand(D)
+
         # Update running gradient norms (EMA)
         with torch.no_grad():
             self.running_grad_norms.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * grad_norms.detach())
+                (1 - self.ema_beta) * gn)
 
         # Identify starved dimensions: ||g_i|| < tau_grad
-        starved_mask = (grad_norms.detach() < self.tau_grad).float()  # (D,)
+        starved_mask = (gn < self.tau_grad).float()  # (D,)
         n_starved = starved_mask.sum().item()
         starved_fraction = n_starved / D
 
         # Exploration bonus: γ · Σ_i max(0, τ - ||g_i||) · ||z_i||²
         # For starved dimensions, (τ - ||g_i||) > 0
-        grad_deficit = F.relu(self.tau_grad - grad_norms.detach())  # (D,)
+        grad_deficit = F.relu(self.tau_grad - gn)  # (D,)
         dim_energy = (z_flat ** 2).mean(dim=0)  # (D,) mean over batch
 
         # GAC loss: sum over starved dimensions
