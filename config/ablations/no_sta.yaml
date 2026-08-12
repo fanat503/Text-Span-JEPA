@@ -1,5 +1,12 @@
-# Ablation: STA OFF (control for spectral transport alignment)
-# Compare against sta_on.yaml to measure STA's contribution
 model:
   use_sta: false
   lambda_sta: 0.0
+  use_gac: false
+  gac_gamma: 0.01
+  gac_tau_grad: 0.0001
+  gac_warmup_steps: 1000
+  lambda_gac: 0.0
+  sta_eta: 0.01
+  sta_ema_beta: 0.999
+  sta_warmup_steps: 500
+  sta_update_interval: 10

@@ -1,8 +1,17 @@
-# Ablation: SWIP ON (selective whitening with information preservation)
-# Whitens background dimensions while preserving workspace eigenvalue hierarchy
 model:
   use_jawp: true
   use_swip: true
   swip_k_workspace: null
   swip_target_variance: 1.0
   lambda_swip: 0.01
+  use_gac: false
+  gac_gamma: 0.01
+  gac_tau_grad: 0.0001
+  gac_warmup_steps: 1000
+  lambda_gac: 0.0
+  use_sta: false
+  sta_eta: 0.01
+  sta_ema_beta: 0.999
+  sta_warmup_steps: 500
+  sta_update_interval: 10
+  lambda_sta: 0.0

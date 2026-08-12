@@ -1,8 +1,16 @@
-# SPC ablation: enable Spectral Predictive Coding
-# Frequency-band-aware prediction loss (mechanism #9)
-
 model:
   use_spc: true
   spc_n_bands: 8
   spc_init: dct
   lambda_spc: 0.1
+  use_gac: false
+  gac_gamma: 0.01
+  gac_tau_grad: 0.0001
+  gac_warmup_steps: 1000
+  lambda_gac: 0.0
+  use_sta: false
+  sta_eta: 0.01
+  sta_ema_beta: 0.999
+  sta_warmup_steps: 500
+  sta_update_interval: 10
+  lambda_sta: 0.0
