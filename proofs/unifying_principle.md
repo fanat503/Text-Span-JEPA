@@ -70,3 +70,21 @@ where:
 - **Adoption path**: Start with JAWP (core), add mechanisms incrementally.
 - **Each mechanism is optional**: The framework works with any subset.
 - **The bound tells you what you're missing**: Each dropped term increases a specific risk component.
+
+### PUC (Mechanism #14) — Prediction Uncertainty
+
+PUC addresses the **entropy constraint** of WCP:
+
+$$H(Z_\mathrm{pred}) \geq H_\mathrm{target}$$
+
+Without this constraint, the predictor can degenerate to a delta function (zero entropy), providing no gradient signal to the encoder. PUC enforces this via log-determinant barrier:
+
+$$\mathcal{L}_\mathrm{PUC} = \eta \cdot \max(0, H_\mathrm{target} - H(\Sigma_\mathrm{pred}))$$
+
+By Donsker-Varadhan duality, this is the tightest convex relaxation of the KL divergence to the maximum-entropy distribution.
+
+**WCP bound contribution**: PUC adds an entropy term to the total risk:
+
+$$R_\mathrm{total} \leq R_{\mathcal{W}^*} + R_\perp + R_\mathrm{drift} + R_\mathrm{consistency} + R_\mathrm{overconfidence}$$
+
+where $R_\mathrm{overconfidence} = \max(0, H_\mathrm{target} - H(\Sigma_\mathrm{pred}))$ is bounded by PUC.

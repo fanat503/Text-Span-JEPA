@@ -1,7 +1,8 @@
-# NeurIPS 2026 Reviewer Attack — Strictest Possible Simulation (v2)
+# NeurIPS 2026 Reviewer Attack — Strictest Possible Simulation (v3)
 
 Updated after C-JEPA (Spotlight), TD-JEPA (Oral), LeJEPA analysis.
-5 reviewers, each stricter than before.
+7 reviewers (v3), including PUC-specific critiques.
+14 mechanisms unified under Workspace-Conditioned Prediction principle.
 
 ---
 

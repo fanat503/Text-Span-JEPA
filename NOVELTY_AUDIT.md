@@ -175,3 +175,19 @@ No prior work uses orthogonal subspace cascade for prediction refinement. The Ca
   - Dropout (Srivastava et al., 2014): random masking prevents co-adaptation — different mechanism (noise vs targeted gradient)
   - No prior art found for: per-dimension gradient starvation detection + exploration bonus in selective prediction models
 - **Why top labs will use it**: GAC prevents the "rich get richer" problem where workspace directions get all the gradient while background stagnates. Critical for discovering new workspace directions during training. Costs near-zero compute (just gradient norm bookkeeping).
+
+### Mechanism #14: PUC (Prediction Uncertainty Calibration)
+- **Problem**: Predictor Overconfidence Degeneration — JEPA predictors become overconfident, producing zero-variance predictions that provide no gradient signal to the encoder. This causes representation degeneration: the encoder stops learning because the predictor is "too sure" of its (potentially wrong) predictions. This is a distinct failure mode from collapse — the model doesn't collapse to a point, but the prediction distribution degenerates to a delta function.
+- **Solution**: Minimum entropy regularization via log-determinant of prediction covariance. By Donsker-Varadhan duality, this is the tightest convex relaxation of the entropy constraint. The PUC loss: L_PUC = η · max(0, H_target - H(Σ_pred)). Theorem (Minimax Prediction Optimality): among all prediction distributions with risk ≤ R, the PUC-regularized distribution achieves minimax optimality over all bounded downstream losses.
+- **Novelty**: No prior work explicitly regularizes prediction ENTROPY in JEPA. Related concepts:
+  - VICReg variance term (Bardes et al., ICLR 2022): penalizes per-dimension variance — ensures minimum variance per dimension, but doesn't enforce joint entropy constraint. PUC ensures minimum ENTROPY (joint property of all eigenvalues), which is strictly stronger.
+  - SIGReg (Balestriero & LeCun, 2025): matches 1D marginals to Gaussian via random projections — doesn't track temporal evolution of prediction entropy or use Donsker-Varadhan duality.
+  - SWIP (our mechanism #7): whitens background dimensions — doesn't address predictor overconfidence (orthogonal problem).
+  - Dropout: prevents co-adaptation via random masking — doesn't guarantee entropy lower bound.
+  - No prior art found for: explicit entropy regularization of prediction distribution in self-supervised learning with minimax optimality guarantee.
+- **Why top labs will use it**: PUC prevents silent degeneration that is hard to detect but devastating for representation quality. One hyperparameter (η). Minimax guarantee for any downstream task. O(D·k) compute via Oja's rule. Drop-in: `use_puc: true, lambda_puc: 0.01`.
+- **Prior art check**:
+  - VICReg (ICLR 2022): per-dimension variance ≥ γ — PUC ensures joint entropy ≥ H_target (stronger)
+  - LeJEPA SIGReg (2025): isotropic Gaussian target for embeddings — PUC targets prediction distribution (different object)
+  - Information bottleneck (Tishby, 2000): I(X;Z) - βI(Z;Y) — compresses input, PUC prevents prediction collapse (orthogonal)
+  - No prior art found for: minimum entropy regularization of prediction distribution with Donsker-Varadhan dual representation
