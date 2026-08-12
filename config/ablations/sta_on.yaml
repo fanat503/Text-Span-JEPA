@@ -1,0 +1,11 @@
+# Ablation: STA (Spectral Transport Alignment) ON
+# Tests whether spectral drift alignment improves workspace stability
+# Expected: lower workspace oscillation, more stable eigenvalue spectrum
+model:
+  use_jawp: true
+  use_sta: true
+  sta_eta: 0.01
+  sta_ema_beta: 0.999
+  sta_warmup_steps: 500
+  sta_update_interval: 10
+  lambda_sta: 0.001

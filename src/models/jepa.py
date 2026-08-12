@@ -30,6 +30,7 @@ from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
 from .cmc import CrossMaskConsistency
 from .gac import GradientAllocatedCapacity
+from .sta import SpectralTransportAlignment
 
 
 class TextSpanJEPAConfig:
@@ -151,6 +152,14 @@ class TextSpanJEPAConfig:
         self.gac_warmup_steps = kwargs.get('gac_warmup_steps', 1000)
         self.lambda_gac = kwargs.get('lambda_gac', 0.0)
 
+        # STA: Spectral Transport Alignment (novel mechanism #13)
+        self.use_sta = kwargs.get('use_sta', False)
+        self.sta_eta = kwargs.get('sta_eta', 0.01)
+        self.sta_ema_beta = kwargs.get('sta_ema_beta', 0.999)
+        self.sta_warmup_steps = kwargs.get('sta_warmup_steps', 500)
+        self.sta_update_interval = kwargs.get('sta_update_interval', 10)
+        self.lambda_sta = kwargs.get('lambda_sta', 0.0)
+
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
@@ -242,6 +251,13 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"gac_gamma must be >= 0, got {self.gac_gamma}")
             if self.gac_tau_grad < 0:
                 raise ValueError(f"gac_tau_grad must be >= 0, got {self.gac_tau_grad}")
+        if self.use_sta:
+            if self.lambda_sta < 0:
+                raise ValueError(f"lambda_sta must be >= 0, got {self.lambda_sta}")
+            if self.sta_eta < 0:
+                raise ValueError(f"sta_eta must be >= 0, got {self.sta_eta}")
+            if self.sta_ema_beta <= 0 or self.sta_ema_beta >= 1:
+                raise ValueError(f"sta_ema_beta must be in (0,1), got {self.sta_ema_beta}")
         return True
 
 
@@ -386,6 +402,18 @@ class TextSpanJEPA(nn.Module):
             )
         else:
             self.gac = None
+
+        # STA — novel mechanism #13: Spectral Transport Alignment
+        if config.use_sta:
+            self.sta = SpectralTransportAlignment(
+                embed_dim=config.embed_dim,
+                eta=config.sta_eta,
+                ema_beta=config.sta_ema_beta,
+                warmup_steps=config.sta_warmup_steps,
+                update_interval=config.sta_update_interval,
+            )
+        else:
+            self.sta = None
 
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
@@ -586,6 +614,15 @@ class TextSpanJEPA(nn.Module):
         loss_gac = _zero_loss
         gac_info = {}
 
+        # STA: Spectral Transport Alignment — penalizes spectral drift
+        # Ensures eigenvalue spectrum evolves smoothly, stabilizing
+        # JAWP workspace and SPC band allocation (Theorem: Davis-Kahan)
+        if self.sta is not None:
+            loss_sta, sta_info = self.sta(h_online, step=current_step)
+        else:
+            loss_sta = _zero_loss
+            sta_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -600,6 +637,7 @@ class TextSpanJEPA(nn.Module):
             + self.config.lambda_wsd * loss_wsd
             + self.config.lambda_cmc * loss_cmc
             + self.config.lambda_gac * loss_gac
+            + self.config.lambda_sta * loss_sta
         )
 
         loss_dict = {
@@ -617,6 +655,7 @@ class TextSpanJEPA(nn.Module):
             'loss_wsd': loss_wsd.item(),
             'loss_cmc': loss_cmc.item(),
             'loss_gac': loss_gac.item(),
+            'loss_sta': loss_sta.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -636,6 +675,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"cmc_{k}": v for k, v in cmc_info.items()})
         if gac_info:
             loss_dict.update({f"gac_{k}": v for k, v in gac_info.items()})
+        if sta_info:
+            loss_dict.update({f"sta_{k}": v for k, v in sta_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 

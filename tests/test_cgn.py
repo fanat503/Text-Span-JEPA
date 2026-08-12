@@ -260,10 +260,12 @@ class TestCGNTheorems:
         )
         # With large logits, low tau should give near-one-hot
         with torch.no_grad():
-            cgn.gate_logits_visible[:, 1].fill_(5.0)  # Strong ON
+            # Make ALL groups strongly prefer the ON category
+            cgn.gate_logits_visible[:, 0].fill_(-5.0)  # Strong OFF
+            cgn.gate_logits_visible[:, 1].fill_(5.0)   # Strong ON
 
         probs = cgn._compute_gate_probs(cgn.gate_logits_visible, tau=0.01)
-        # ON probability should be close to 1
+        # ON probability (column 1) should be close to 1 for all groups
         assert probs[:, 1].min() > 0.9
 
 

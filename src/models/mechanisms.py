@@ -1,7 +1,7 @@
 # Copyright 2026 Text-Span JEPA Authors
 # Licensed under the Apache License, Version 2.0
 #
-# Convenience API: One-line access to all 11 novel mechanisms.
+# Convenience API: One-line access to all 13 novel mechanisms.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 #  USAGE (3 lines to upgrade any JEPA with all mechanisms)
@@ -14,7 +14,7 @@
 #                               mask_positions, step)
 #  bundle.retract()                                       # line 3
 #
-#  That's it. All 11 mechanisms in 3 lines.
+#  That's it. All 13 mechanisms in 3 lines.
 #
 #  Mechanisms:
 #    1.  JAWP  — workspace prediction (Courant-Fischer optimality)
@@ -28,6 +28,8 @@
 #    9.  SPC   — spectral predictive coding (info-proportional capacity)
 #    10. WSD   — workspace-target sync drift (drift bound theorem)
 #    11. CMC   — cross-mask consistency (stability theorem)
+#    12. GAC   — gradient-allocated capacity (no dead zones theorem)
+#    13. STA   — spectral transport alignment (Davis-Kahan stability)
 #
 #  You can also use individual mechanisms:
 #    from src.models.mechanisms import jawp_loss, cgn_gate, pcr_refine, ...
@@ -45,10 +47,11 @@ from .spc import SpectralPredictiveCoding
 from .wsd import WorkspaceSyncDrift
 from .gac import GradientAllocatedCapacity
 from .cmc import CrossMaskConsistency
+from .sta import SpectralTransportAlignment
 
 
 class MechanismBundle(nn.Module):
-    """All 11 Text-Span JEPA mechanisms in one convenient module.
+    """All 13 Text-Span JEPA mechanisms in one convenient module.
 
     Drop-in upgrade for ANY JEPA variant:
       I-JEPA, V-JEPA, C-JEPA, TD-JEPA, LeJEPA, etc.
@@ -106,6 +109,12 @@ class MechanismBundle(nn.Module):
         gac_gamma: float = 0.01,
         gac_tau_grad: float = 1e-4,
         gac_warmup_steps: int = 1000,
+        # STA
+        use_sta: bool = False,
+        sta_eta: float = 0.01,
+        sta_ema_beta: float = 0.999,
+        sta_warmup_steps: int = 500,
+        sta_update_interval: int = 10,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -117,6 +126,7 @@ class MechanismBundle(nn.Module):
         self.use_wsd = use_wsd
         self.use_cmc = use_cmc
         self.use_gac = use_gac
+        self.use_sta = use_sta
         self.lambda_predictive_rank = lambda_predictive_rank
 
         # Mechanism 1-5: JAWP
@@ -197,6 +207,16 @@ class MechanismBundle(nn.Module):
         else:
             self.gac = None
 
+        # Mechanism 13: STA
+        if use_sta:
+            self.sta = SpectralTransportAlignment(
+                embed_dim=embed_dim, eta=sta_eta,
+                ema_beta=sta_ema_beta, warmup_steps=sta_warmup_steps,
+                update_interval=sta_update_interval,
+            )
+        else:
+            self.sta = None
+
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
         """Create from a TextSpanJEPAConfig object."""
@@ -237,6 +257,11 @@ class MechanismBundle(nn.Module):
             gac_gamma=getattr(config, 'gac_gamma', 0.01),
             gac_tau_grad=getattr(config, 'gac_tau_grad', 1e-4),
             gac_warmup_steps=getattr(config, 'gac_warmup_steps', 1000),
+            use_sta=getattr(config, 'use_sta', False),
+            sta_eta=getattr(config, 'sta_eta', 0.01),
+            sta_ema_beta=getattr(config, 'sta_ema_beta', 0.999),
+            sta_warmup_steps=getattr(config, 'sta_warmup_steps', 500),
+            sta_update_interval=getattr(config, 'sta_update_interval', 10),
         )
 
     def forward(
@@ -293,6 +318,12 @@ class MechanismBundle(nn.Module):
             info['wsd_loss'] = wsd_loss
             info.update({f'wsd_{k}': v for k, v in wsd_info.items()})
 
+        # STA
+        if self.sta is not None:
+            sta_loss, sta_info = self.sta(z_out, step=step)
+            info['sta_loss'] = sta_loss
+            info.update({f'sta_{k}': v for k, v in sta_info.items()})
+
         return z_out, info
 
     def compute_cmc_loss(
@@ -301,17 +332,7 @@ class MechanismBundle(nn.Module):
         z_pred_secondary: torch.Tensor,
         overlap_mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, Dict[str, any]]:
-        """Compute CMC loss (requires second forward pass, call separately).
-
-        Args:
-            z_pred_primary: (B, T, D) predictions from primary mask.
-            z_pred_secondary: (B, T, D) predictions from secondary mask.
-            overlap_mask: (B, T) binary — 1 if masked in BOTH masks.
-
-        Returns:
-            loss: scalar tensor.
-            info: dict with diagnostics.
-        """
+        """Compute CMC loss (requires second forward pass, call separately)."""
         if self.cmc is None:
             zero = torch.tensor(0.0, device=z_pred_primary.device)
             return zero, {'cmc_loss': 0.0, 'cmc_skipped': True}
@@ -397,3 +418,10 @@ def gac_explore(z_pred, grad_norms, embed_dim=768, gamma=0.01, tau_grad=1e-4, st
     gac = GradientAllocatedCapacity(embed_dim=embed_dim, gamma=gamma, tau_grad=tau_grad)
     gac = gac.to(z_pred.device)
     return gac(z_pred, grad_norms, step=step)
+
+
+def sta_align(z, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
+    """Spectral transport alignment loss — one function call."""
+    sta = SpectralTransportAlignment(embed_dim=embed_dim, eta=eta, ema_beta=ema_beta)
+    sta = sta.to(z.device)
+    return sta(z, step=step)

@@ -1,0 +1,5 @@
+# Ablation: STA OFF (control for spectral transport alignment)
+# Compare against sta_on.yaml to measure STA's contribution
+model:
+  use_sta: false
+  lambda_sta: 0.0
