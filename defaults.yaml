@@ -113,6 +113,11 @@ model:
   sta_warmup_steps: 500
   sta_update_interval: 10
   lambda_sta: 0.0
+  use_puc: false
+  puc_eta: 0.01
+  puc_ema_beta: 0.999
+  puc_warmup_steps: 500
+  lambda_puc: 0.0
 
 optimization:
   ema: [0.996, 1.0]

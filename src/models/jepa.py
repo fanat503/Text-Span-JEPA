@@ -31,6 +31,7 @@ from .wsd import WorkspaceSyncDrift
 from .cmc import CrossMaskConsistency
 from .gac import GradientAllocatedCapacity
 from .sta import SpectralTransportAlignment
+from .puc import PredictionUncertaintyCalibration
 
 
 class TextSpanJEPAConfig:
@@ -158,7 +159,14 @@ class TextSpanJEPAConfig:
         self.sta_ema_beta = kwargs.get('sta_ema_beta', 0.999)
         self.sta_warmup_steps = kwargs.get('sta_warmup_steps', 500)
         self.sta_update_interval = kwargs.get('sta_update_interval', 10)
+
+        # PUC: Prediction Uncertainty Calibration (novel mechanism #14)
+        self.use_puc = kwargs.get('use_puc', False)
+        self.puc_eta = kwargs.get('puc_eta', 0.01)
+        self.puc_ema_beta = kwargs.get('puc_ema_beta', 0.999)
+        self.puc_warmup_steps = kwargs.get('puc_warmup_steps', 500)
         self.lambda_sta = kwargs.get('lambda_sta', 0.0)
+        self.lambda_puc = kwargs.get('lambda_puc', 0.0)
 
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
@@ -417,6 +425,17 @@ class TextSpanJEPA(nn.Module):
         else:
             self.sta = None
 
+        # PUC — novel mechanism #14: Prediction Uncertainty Calibration
+        if config.use_puc:
+            self.puc = PredictionUncertaintyCalibration(
+                embed_dim=config.embed_dim,
+                eta=config.puc_eta,
+                ema_beta=config.puc_ema_beta,
+                warmup_steps=config.puc_warmup_steps,
+            )
+        else:
+            self.puc = None
+
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -623,6 +642,13 @@ class TextSpanJEPA(nn.Module):
             loss_sta = _zero_loss
             sta_info = {}
 
+        # PUC: Prediction Uncertainty Calibration
+        if self.puc is not None:
+            loss_puc, puc_info = self.puc(h_online, z_target=h_target, step=current_step)
+        else:
+            loss_puc = _zero_loss
+            puc_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -638,6 +664,7 @@ class TextSpanJEPA(nn.Module):
             + self.config.lambda_cmc * loss_cmc
             + self.config.lambda_gac * loss_gac
             + self.config.lambda_sta * loss_sta
+            + self.config.lambda_puc * loss_puc
         )
 
         loss_dict = {
@@ -656,6 +683,7 @@ class TextSpanJEPA(nn.Module):
             'loss_cmc': loss_cmc.item(),
             'loss_gac': loss_gac.item(),
             'loss_sta': loss_sta.item(),
+            'loss_puc': loss_puc.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -677,6 +705,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"gac_{k}": v for k, v in gac_info.items()})
         if sta_info:
             loss_dict.update({f"sta_{k}": v for k, v in sta_info.items()})
+        if puc_info:
+            loss_dict.update({f"puc_{k}": v for k, v in puc_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 

@@ -427,3 +427,11 @@ def sta_align(z, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
     sta = SpectralTransportAlignment(embed_dim=embed_dim, eta=eta, ema_beta=ema_beta)
     sta = sta.to(z.device)
     return sta(z, step=step)
+
+
+def puc_calibrate(z_pred, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
+    """Prediction uncertainty calibration loss — one function call."""
+    from .puc import PredictionUncertaintyCalibration
+    puc = PredictionUncertaintyCalibration(embed_dim=embed_dim, eta=eta, ema_beta=ema_beta)
+    puc = puc.to(z_pred.device)
+    return puc(z_pred, step=step)

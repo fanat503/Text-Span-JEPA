@@ -20,6 +20,7 @@ This directory contains formal mathematical proofs for all 13 mechanisms in Text
 | CMC | [`cmc.md`](cmc.md) | Stability theorem (Cauchy-Schwarz bound) |
 | GAC | [`gac.md`](gac.md) | No Dead Zones theorem (exploration guarantee) |
 | STA | [`sta.md`](sta.md) | Davis-Kahan stability + Wasserstein-1 metric |
+| PUC | [`puc.md`](puc.md) | Minimax optimality (Jaynes + Donsker-Varadhan) |
 
 ## Pre-Registered Hypotheses
 

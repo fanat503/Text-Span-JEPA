@@ -1,0 +1,6 @@
+model:
+  use_puc: false
+  lambda_puc: 0.0
+  puc_eta: 0.01
+  puc_ema_beta: 0.999
+  puc_warmup_steps: 500
