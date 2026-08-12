@@ -259,8 +259,11 @@ class TestCGNTheorems:
             embed_dim=self.embed_dim, n_groups=self.n_groups
         )
         # With large logits, low tau should give near-one-hot
+        # Use eval mode to disable Gumbel noise (deterministic test)
+        cgn.eval()
         with torch.no_grad():
-            cgn.gate_logits_visible[:, 1].fill_(5.0)  # Strong ON
+            cgn.gate_logits_visible[:, 0].fill_(-5.0)  # Strong OFF
+            cgn.gate_logits_visible[:, 1].fill_(5.0)   # Strong ON
 
         probs = cgn._compute_gate_probs(cgn.gate_logits_visible, tau=0.01)
         # ON probability should be close to 1
