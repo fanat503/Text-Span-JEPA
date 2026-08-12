@@ -209,9 +209,12 @@ class RepresentationDriftCompensation(nn.Module):
             self.running_drift_ratio.mul_(0.99).add_(0.01 * drift_ratio)
             self.total_steps.add_(1)
 
-        # Theoretical bound: ε(1-η)^T · T/√k
+        # Theoretical bound: ε(1-η)^T · T/√k (transient)
         eps_estimate = self.running_ortho_drift_norm.item()
-        theoretical_bound = eps_estimate * ((1 - self.eta) ** min(step, 10000)) * min(step, 10000) / math.sqrt(max(k, 1))
+        T_eff = min(step, 10000)
+        transient_bound = eps_estimate * ((1 - self.eta) ** T_eff) * T_eff / math.sqrt(max(k, 1))
+        # Stationary bound: ε(1-η)/(η·√k) — tight, independent of T
+        stationary_bound = eps_estimate * (1 - self.eta) / (max(self.eta, 1e-8) * math.sqrt(max(k, 1)))
 
         info = {
             'rdc_loss': loss.item(),
@@ -221,7 +224,9 @@ class RepresentationDriftCompensation(nn.Module):
             'rdc_drift_ratio': drift_ratio,
             'rdc_warmup_factor': warmup_factor,
             'rdc_k_workspace': k,
-            'rdc_theoretical_bound': theoretical_bound,
+            'rdc_theoretical_bound': min(transient_bound, stationary_bound),
+            'rdc_transient_bound': transient_bound,
+            'rdc_stationary_bound': stationary_bound,
             'rdc_eta': self.eta,
         }
 

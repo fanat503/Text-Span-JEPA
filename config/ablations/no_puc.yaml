@@ -10,3 +10,9 @@ model:
   puc_eta: 0.01
   puc_ema_beta: 0.999
   puc_warmup_steps: 500
+  lambda_swip: 0.0
+  lambda_spc: 0.0
+  lambda_wsd: 0.0
+  lambda_cmc: 0.0
+  lambda_gac: 0.0
+  lambda_sta: 0.0

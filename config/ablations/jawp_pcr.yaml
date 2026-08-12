@@ -1,0 +1,20 @@
+model:
+  use_jawp: true
+  use_pcr: true
+  use_cgn: false
+  use_swip: false
+  use_spc: false
+  use_wsd: false
+  use_cmc: false
+  use_gac: false
+  use_sta: false
+  use_puc: false
+  use_rdc: false
+  lambda_swip: 0.0
+  lambda_spc: 0.0
+  lambda_wsd: 0.0
+  lambda_cmc: 0.0
+  lambda_gac: 0.0
+  lambda_sta: 0.0
+  lambda_puc: 0.0
+  lambda_rdc: 0.0

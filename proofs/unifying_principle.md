@@ -2,7 +2,7 @@
 
 ## Central Claim
 
-All 13 mechanisms in Text-Span JEPA are instances of a single optimization principle:
+All 15 mechanisms in Text-Span JEPA are instances of a single optimization principle:
 
 **Workspace-Conditioned Prediction (WCP):**
 > Predict $Y$ from $X$ using a representation that maximizes $I(Z_\mathcal{W}; Y)$ while preserving $I(Z_\mathcal{W}; f_{\mathrm{exo}})$, where $\mathcal{W} = \operatorname{span}(Q)$ is a learned subspace optimized on $\mathrm{St}(D,k)$.
@@ -27,19 +27,23 @@ $$\min_{Q \in \mathrm{St}(D,k)} \underbrace{\operatorname{tr}(Q^\top \Sigma_{\ma
 | **CMC** | Consistency | Ensure predictions agree across different masks |
 | **GAC** | Exploration | Ensure background dimensions receive gradient |
 | **STA** | Transport | Align spectral distributions via $W_1$ metric |
+| **PUC** | Uncertainty | Prevent predictor overconfidence via entropy constraint |
+| **RDC** | Drift control | Prevent orthogonal drift that discards exogenous features |
 
 ## The WCP Theorem
 
 **Theorem (Workspace-Conditioned Prediction Bound).**
 Let $\mathcal{W}^* = \operatorname{span}(Q^*)$ where $Q^*$ solves the WCP optimization. Then the total downstream risk satisfies:
 
-$$R_{\mathrm{total}} \leq R_{\mathcal{W}^*} + R_\perp + R_{\mathrm{drift}} + R_{\mathrm{consistency}}$$
+$$R_{\mathrm{total}} \leq R_{\mathcal{W}^*} + R_\perp + R_{\mathrm{drift}} + R_{\mathrm{consistency}} + R_{\mathrm{overconfidence}} + R_{\mathrm{exogenous\_drift}}$$
 
 where:
 - $R_{\mathcal{W}^*}$: prediction risk in workspace (minimized by JAWP + SPC)
 - $R_\perp$: background risk (controlled by SWIP + GAC)
 - $R_{\mathrm{drift}}$: workspace-target drift (bounded by WSD + STA)
 - $R_{\mathrm{consistency}}$: cross-mask inconsistency (bounded by CMC)
+- $R_{\mathrm{overconfidence}}$: predictor entropy deficit (bounded by PUC)
+- $R_{\mathrm{exogenous\_drift}}$: orthogonal drift discarding exogenous info (bounded by RDC)
 
 ### Proof Sketch
 

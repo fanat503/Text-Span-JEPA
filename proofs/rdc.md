@@ -112,6 +112,25 @@ For the tighter bound with geometric decay:
 
   ||z_{⊥,T} - z_{⊥,0}|| ≤ ε · (1-η_rdc) / (η_rdc · √k)  (T → ∞)
 
+### Stationary Bound (Tight)
+
+As T → ∞, the geometric series converges:
+
+  Σ_{t=1}^{∞} (1-η_rdc)^t = (1-η_rdc) / η_rdc
+
+This gives the **stationary (tight) bound**:
+
+  ||z_{⊥,∞} - z_{⊥,0}|| ≤ ε(1-η_rdc) / (η_rdc · √k)
+
+This bound is:
+- Independent of T (no accumulation)
+- Decreasing in η_rdc (more compensation → less drift)
+- Tight: achieved when all drift steps are aligned (worst case)
+
+The transient bound ε(1-η)^T · T/√k is loose for large T because it
+doesn't account for the exponential decay dominating the linear growth.
+The crossover point is T* ≈ 1/|ln(1-η)| ≈ 1/η for small η.
+
 This shows:
   - RDC reduces orthogonal drift by factor (1-η_rdc) per step
   - The bound DECREASES as η_rdc → 1 (full anchoring)

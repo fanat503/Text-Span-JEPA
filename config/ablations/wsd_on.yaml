@@ -19,3 +19,7 @@ model:
   rdc_warmup_steps: 500
   rdc_k_workspace: null
   lambda_rdc: 0.0
+  lambda_swip: 0.0
+  lambda_spc: 0.0
+  lambda_cmc: 0.0
+  lambda_puc: 0.0

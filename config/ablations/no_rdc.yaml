@@ -1,5 +1,10 @@
-# Ablation: RDC OFF (default — no representation drift compensation)
-# Tests H11: RDC prevents loss of exogenous control-relevant features
 model:
   use_rdc: false
   lambda_rdc: 0.0
+  lambda_swip: 0.0
+  lambda_spc: 0.0
+  lambda_wsd: 0.0
+  lambda_cmc: 0.0
+  lambda_gac: 0.0
+  lambda_sta: 0.0
+  lambda_puc: 0.0
