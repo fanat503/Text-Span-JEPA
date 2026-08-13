@@ -1068,16 +1068,18 @@ class CollapseDiagnostics(nn.Module):
         representation alignment into a single scalar in [0, 1].
 
         Components (weighted sum + geometric mean bonus):
-          1. Anti-collapse: 1 - collapsed_dim_ratio_online  (w=0.20)
-          2. Spectral health: sv_entropy_online              (w=0.15)
-          3. Rank utilization: rank_utilization_online       (w=0.15)
-          4. Alignment: 1 - alignment (normalized)           (w=0.15)
-          5. Uniformity: exp(uniformity) bounded             (w=0.10)
-          6. CKA: cka_linear                                  (w=0.10)
-          7. SVCCA: svcca_online_target                      (w=0.10)
+          1. Anti-collapse: 1 - collapsed_dim_ratio_online  (w=0.16)
+          2. Spectral health: sv_entropy_online              (w=0.12)
+          3. Rank utilization: rank_utilization_online       (w=0.12)
+          4. Alignment: 1 - alignment (normalized)           (w=0.12)
+          5. Uniformity: exp(uniformity) bounded             (w=0.08)
+          6. CKA: cka_linear                                  (w=0.08)
+          7. SVCCA: svcca_online_target                      (w=0.08)
           8. Alpha norm: bounded alpha_norm                   (w=0.05)
+          9. Workspace utilization: predictor uses JAWP       (w=0.10)
+         10. Workspace flatness: 1 - sharpness (WSR)          (w=0.09)
 
-        Geometric mean bonus: 0.1 * (prod of all components)^{1/9}
+        Geometric mean bonus: 0.1 * (prod of all components)^{1/10}
         Encourages all components to be non-zero simultaneously.
 
         Returns:
@@ -1106,10 +1108,14 @@ class CollapseDiagnostics(nn.Module):
             alpha_norm = math.exp(-0.5 * (alpha_raw - 1.5) ** 2)
             # workspace utilization: predictor uses JAWP workspace
             ws_util = _get('workspace_utilization', default=0.5)
+            # workspace flatness: 1 - normalized sharpness (WSR)
+            # Low sharpness = flat minimum = good generalization
+            ws_sharp_raw = _get('wsr_sharpness', default=0.0, lo=0.0, hi=10.0)
+            ws_flatness = 1.0 / (1.0 + ws_sharp_raw)
 
-            weights = [0.18, 0.13, 0.13, 0.13, 0.09, 0.09, 0.09, 0.05, 0.11]
+            weights = [0.16, 0.12, 0.12, 0.12, 0.08, 0.08, 0.08, 0.05, 0.10, 0.09]
             components = [anti_collapse, spectral, rank_util, alignment,
-                          uniformity, cka, svcca, alpha_norm, ws_util]
+                          uniformity, cka, svcca, alpha_norm, ws_util, ws_flatness]
 
             weighted_sum = sum(w * c for w, c in zip(weights, components))
 

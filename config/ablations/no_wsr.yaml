@@ -1,41 +1,40 @@
+# Ablation: WSR OFF (Workspace Sharpness Regularization disabled)
+# Compare with wsr_on.yaml to measure WSR's effect on generalization
+
 meta:
-  seed: 42
   use_bfloat16: true
-  model_name: text_span_jepa_small
   load_checkpoint: false
-  dataset: wikitext103
+  model_name: text_span_jepa
+
 data:
-  batch_size: 128
+  batch_size: 64
   max_seq_len: 512
   tokenizer: gpt2
-  num_workers: 4
+  num_workers: 2
   root_path: data/wikitext-103
   mask_ratio: 0.35
-  span_length_range:
-  - 3
-  - 10
+
 model:
-  embed_dim: 640
-  encoder_depth: 10
-  num_heads: 10
+  embed_dim: 768
+  encoder_depth: 12
+  num_heads: 12
   mlp_ratio: 4.0
   qkv_bias: true
   drop_rate: 0.0
   attn_drop_rate: 0.0
   drop_path_rate: 0.1
-  predictor_embed_dim: 320
-  predictor_depth: 4
-  future_offsets:
-  - 1
-  - 4
-  - 16
+  gradient_checkpointing: false
+  predictor_embed_dim: 384
+  predictor_depth: 6
+  future_offsets: [1, 4, 16]
   num_refine_steps: 3
   refine_step_size: 0.1
   decoder_bias: false
   variance_margin: 1.0
   centering_momentum: 0.9
   ema_tau_start: 0.996
-  ema_tau_end: 1.0
+  ema_tau_end: 0.9999
+  ema_schedule: cosine
   lambda_span: 1.0
   lambda_future: 0.5
   lambda_decoder: 0.1
@@ -50,11 +49,6 @@ model:
   jawk_curriculum_steps: 10000
   jawk_alpha: 0.1
   jawk_init: identity
-  lambda_sigreg: 0.0
-  ema_schedule: cosine
-  gradient_checkpointing: false
-  jspace_variance_threshold: 0.1
-  jspace_k_workspace: 25
   lambda_predictive_rank: 0.0
   use_cgn: false
   cgn_n_groups: 8
@@ -114,20 +108,26 @@ model:
   wsr_warmup_steps: 500
   wsr_mode: gradient
   lambda_wsr: 0.0
+  lambda_sigreg: 0.0
+  sigreg_n_sketches: 64
+  sigreg_n_integration_points: 17
+  sigreg_sigma: 1.0
+  jspace_variance_threshold: 0.10
+  jspace_k_workspace: 25
+
 optimization:
-  ema:
-  - 0.996
-  - 1.0
-  epochs: 30
+  ema: [0.996, 0.9999]
+  epochs: 50
   ipe_scale: 1.0
   lr: 0.001
   start_lr: 0.0002
-  final_lr: 1.0e-05
+  final_lr: 1.0e-5
   warmup: 10
   weight_decay: 0.04
   final_weight_decay: 0.4
-  grad_accum_steps: 4
+  grad_accum_steps: 1
+
 logging:
-  folder: output/scaling/small-100m/
+  folder: output/
   log_freq: 10
-  write_tag: scaling_small_100m
+  write_tag: no_wsr

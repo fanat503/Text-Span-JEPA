@@ -144,3 +144,22 @@ With η_rdc > 0, orthogonal drift is exponentially bounded.
 Orthogonal features will have higher variance (not collapsed).
 
 **Ablation**: `rdc_on.yaml` vs `no_rdc.yaml`.
+
+## H12: WSR Improves Generalization Under Distribution Shift
+
+**Hypothesis**: WSR will reduce the workspace sharpness ρ_Q by ≥30% and improve
+downstream linear probe accuracy by ≥1% under distribution shift, compared to
+standard JAWP without WSR.
+
+**Rationale**: The Workspace Generalization Bound guarantees:
+|L_train(Q̂) - L_test(Q̂)| ≤ C · √(ρ_Q / n)
+WSR minimizes ρ_Q, directly tightening the generalization bound.
+Flat workspace minima are more robust to distribution shift.
+
+**Prediction**: workspace_sharpness with WSR < 0.7 * workspace_sharpness without WSR.
+Linear probe accuracy on shifted domain improves by ≥1%.
+The Grassmann Sharpness Decomposition shows: ρ_Q = ρ_spectral + ρ_directional.
+WSR primarily reduces ρ_directional; STA reduces ρ_spectral.
+Together, STA + WSR reduce ρ_Q more than either alone.
+
+**Ablation**: `wsr_on.yaml` vs `no_wsr.yaml`. Also compare `sta_on.yaml` + `wsr_on.yaml` vs each alone.

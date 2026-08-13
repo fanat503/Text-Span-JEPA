@@ -4,6 +4,7 @@
 model:
   use_jawp: true
   use_cgn: true
+  lambda_cgn_ortho: 0.0
   use_swip: true
   use_pcr: true
   use_spc: true
@@ -21,3 +22,10 @@ model:
   lambda_sta: 0.01
   lambda_puc: 0.01
   lambda_rdc: 0.01
+  use_wsr: false
+  wsr_rho: 0.05
+  wsr_eta: 0.01
+  wsr_ema_beta: 0.999
+  wsr_warmup_steps: 500
+  wsr_mode: gradient
+  lambda_wsr: 0.0

@@ -135,6 +135,13 @@ def save_checkpoint(path, model, optimizer, scaler, epoch, global_step,
             state['rdc_running_drift_norm'] = model.rdc.running_drift_norm.clone()
             state['rdc_running_drift_ratio'] = model.rdc.running_drift_ratio.clone()
             state['rdc_total_steps'] = model.rdc.total_steps.clone()
+        # WSR running statistics — must be saved for resumption
+        if model_name == 'text_span_jepa' and hasattr(model, 'wsr') and model.wsr is not None:
+            state['wsr_running_sharpness'] = model.wsr.running_sharpness.clone()
+            state['wsr_running_spectral_sharpness'] = model.wsr.running_spectral_sharpness.clone()
+            state['wsr_running_directional_sharpness'] = model.wsr.running_directional_sharpness.clone()
+            state['wsr_running_grad_norm'] = model.wsr.running_grad_norm.clone()
+            state['wsr_total_steps'] = model.wsr.total_steps.clone()
     elif model_name == 'mlm':
         state['encoder'] = model.encoder.state_dict()
         state['mlm_head'] = model.mlm_head.state_dict()
@@ -253,6 +260,17 @@ def load_checkpoint(path, model, optimizer, scaler,
                 model.rdc.running_drift_ratio.copy_(checkpoint['rdc_running_drift_ratio'])
             if 'rdc_total_steps' in checkpoint and hasattr(model, 'rdc') and model.rdc is not None:
                 model.rdc.total_steps.copy_(checkpoint['rdc_total_steps'])
+            # WSR restoration
+            if 'wsr_running_sharpness' in checkpoint and hasattr(model, 'wsr') and model.wsr is not None:
+                model.wsr.running_sharpness.copy_(checkpoint['wsr_running_sharpness'])
+            if 'wsr_running_spectral_sharpness' in checkpoint and hasattr(model, 'wsr') and model.wsr is not None:
+                model.wsr.running_spectral_sharpness.copy_(checkpoint['wsr_running_spectral_sharpness'])
+            if 'wsr_running_directional_sharpness' in checkpoint and hasattr(model, 'wsr') and model.wsr is not None:
+                model.wsr.running_directional_sharpness.copy_(checkpoint['wsr_running_directional_sharpness'])
+            if 'wsr_running_grad_norm' in checkpoint and hasattr(model, 'wsr') and model.wsr is not None:
+                model.wsr.running_grad_norm.copy_(checkpoint['wsr_running_grad_norm'])
+            if 'wsr_total_steps' in checkpoint and hasattr(model, 'wsr') and model.wsr is not None:
+                model.wsr.total_steps.copy_(checkpoint['wsr_total_steps'])
         elif ckpt_model_name == 'mlm':
             model.encoder.load_state_dict(checkpoint['encoder'])
             model.mlm_head.load_state_dict(checkpoint['mlm_head'])

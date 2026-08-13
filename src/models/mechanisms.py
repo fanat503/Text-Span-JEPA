@@ -30,8 +30,9 @@
 #    11. CMC   — cross-mask consistency (stability theorem)
 #    12. GAC   — gradient-allocated capacity (no dead zones theorem)
 #    13. STA   — spectral transport alignment (Davis-Kahan + Wasserstein-1)
-#    14. PUC   — prediction uncertainty calibration (minimax optimality)
-#    15. RDC   — representation drift compensation (drift compensation bound)
+#   14. PUC   — prediction uncertainty calibration (minimax optimality)
+#   15. RDC   — representation drift compensation (drift compensation bound)
+#   16. WSR   — workspace sharpness regularization (generalization bound)
 #
 #  You can also use individual mechanisms:
 #    from src.models.mechanisms import jawp_loss, cgn_gate, pcr_refine, ...
@@ -54,6 +55,7 @@ from .sta import SpectralTransportAlignment
 
 from .puc import PredictionUncertaintyCalibration
 from .rdc import RepresentationDriftCompensation
+from .wsr import WorkspaceSharpnessRegularization
 
 
 class MechanismBundle(nn.Module):
@@ -130,6 +132,13 @@ class MechanismBundle(nn.Module):
         rdc_ema_beta: float = 0.999,
         rdc_warmup_steps: int = 500,
         rdc_k_workspace: Optional[int] = None,
+        # WSR
+        use_wsr: bool = False,
+        wsr_rho: float = 0.05,
+        wsr_eta: float = 0.01,
+        wsr_ema_beta: float = 0.999,
+        wsr_warmup_steps: int = 500,
+        wsr_mode: str = 'gradient',
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -144,6 +153,7 @@ class MechanismBundle(nn.Module):
         self.use_sta = use_sta
         self.use_puc = use_puc
         self.use_rdc = use_rdc
+        self.use_wsr = use_wsr
         self.lambda_predictive_rank = lambda_predictive_rank
 
         # Mechanism 1-5: JAWP
@@ -250,6 +260,16 @@ class MechanismBundle(nn.Module):
         else:
             self.rdc = None
 
+        # Mechanism 16: WSR
+        if use_wsr:
+            self.wsr = WorkspaceSharpnessRegularization(
+                embed_dim=embed_dim, rho=wsr_rho, eta=wsr_eta,
+                ema_beta=wsr_ema_beta, warmup_steps=wsr_warmup_steps,
+                mode=wsr_mode,
+            )
+        else:
+            self.wsr = None
+
     @classmethod
     def from_config(cls, config) -> 'MechanismBundle':
         """Create from a TextSpanJEPAConfig object."""
@@ -302,6 +322,12 @@ class MechanismBundle(nn.Module):
             rdc_ema_beta=getattr(config, 'rdc_ema_beta', 0.999),
             rdc_warmup_steps=getattr(config, 'rdc_warmup_steps', 500),
             rdc_k_workspace=getattr(config, 'rdc_k_workspace', None),
+            use_wsr=getattr(config, 'use_wsr', False),
+            wsr_rho=getattr(config, 'wsr_rho', 0.05),
+            wsr_eta=getattr(config, 'wsr_eta', 0.01),
+            wsr_ema_beta=getattr(config, 'wsr_ema_beta', 0.999),
+            wsr_warmup_steps=getattr(config, 'wsr_warmup_steps', 500),
+            wsr_mode=getattr(config, 'wsr_mode', 'gradient'),
         )
 
     def forward(
@@ -373,6 +399,14 @@ class MechanismBundle(nn.Module):
         # RDC (requires z_previous from external state — typically returns 0 loss
         # in forward(); call compute_rdc_loss separately with z_previous)
         # RDC loss is computed externally like GAC/CMC
+
+        # WSR
+        if self.wsr is not None and self.jawp is not None:
+            k_active_wsr = int(self.jawp.active_k.item())
+            Q_jawp_wsr = self.jawp.workspace_Q.data[:, :k_active_wsr]
+            wsr_loss, wsr_info = self.wsr(Q_jawp_wsr, step=step)
+            info['wsr_loss'] = wsr_loss
+            info.update({f'wsr_{k}': v for k, v in wsr_info.items()})
 
         return z_out, info
 
@@ -501,3 +535,10 @@ def rdc_compensate(z_current, z_previous, workspace_Q, embed_dim=768, eta=0.01, 
     rdc = RepresentationDriftCompensation(embed_dim=embed_dim, eta=eta)
     rdc = rdc.to(z_current.device)
     return rdc(z_current, z_previous=z_previous, workspace_Q=workspace_Q, step=step)
+
+
+def wsr_sharpness(Q, embed_dim=768, rho=0.05, eta=0.01, step=0):
+    """Workspace sharpness regularization — one function call."""
+    wsr = WorkspaceSharpnessRegularization(embed_dim=embed_dim, rho=rho, eta=eta)
+    wsr = wsr.to(Q.device)
+    return wsr(Q, step=step)

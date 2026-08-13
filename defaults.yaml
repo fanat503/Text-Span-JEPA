@@ -150,6 +150,17 @@ model:
   rdc_k_workspace: null
   lambda_rdc: 0.0
 
+  # WSR: Workspace Sharpness Regularization (mechanism #16)
+  # Generalization Bound — prevents sharp workspace minima under distribution shift
+  # PAC-Bayes + Grassmann Sharpness Decomposition: ρ_Q = ρ_spectral + ρ_directional
+  use_wsr: false
+  wsr_rho: 0.05
+  wsr_eta: 0.01
+  wsr_ema_beta: 0.999
+  wsr_warmup_steps: 500
+  wsr_mode: gradient
+  lambda_wsr: 0.0
+
   # ═══════════════════════════════════════════════════════════════
   #  Collapse Prevention (from prior art, integrated into WCP)
   # ═══════════════════════════════════════════════════════════════

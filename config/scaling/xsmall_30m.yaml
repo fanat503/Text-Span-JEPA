@@ -107,6 +107,13 @@ model:
   rdc_warmup_steps: 500
   rdc_k_workspace: null
   lambda_rdc: 0.0
+  use_wsr: false
+  wsr_rho: 0.05
+  wsr_eta: 0.01
+  wsr_ema_beta: 0.999
+  wsr_warmup_steps: 500
+  wsr_mode: gradient
+  lambda_wsr: 0.0
 optimization:
   ema:
   - 0.996

@@ -19,3 +19,4 @@ from .gac import GradientAllocatedCapacity
 from .sta import SpectralTransportAlignment
 from .puc import PredictionUncertaintyCalibration
 from .rdc import RepresentationDriftCompensation
+from .wsr import WorkspaceSharpnessRegularization

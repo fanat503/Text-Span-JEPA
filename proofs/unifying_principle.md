@@ -29,6 +29,7 @@ $$\min_{Q \in \mathrm{St}(D,k)} \underbrace{\operatorname{tr}(Q^\top \Sigma_{\ma
 | **STA** | Transport | Align spectral distributions via $W_1$ metric |
 | **PUC** | Uncertainty | Prevent predictor overconfidence via entropy constraint |
 | **RDC** | Drift control | Prevent orthogonal drift that discards exogenous features |
+| **WSR** | Flatness | Ensure workspace sits at flat minimum on Gr(k,D) |
 
 ## The WCP Theorem
 

@@ -1306,3 +1306,56 @@ def plot_rdc_drift_ratio(
     if save_path:
         fig.savefig(save_path)
     return fig, ax
+
+
+def plot_wsr_sharpness(
+    steps, sharpness, spectral_sharpness=None, directional_sharpness=None,
+    title='WSR Workspace Sharpness', save_path=None,
+):
+    """Plot Workspace Sharpness Regularization diagnostics.
+
+    Shows total sharpness and its decomposition into spectral and
+    directional components (Grassmann Sharpness Decomposition theorem).
+
+    Args:
+        steps: array of training steps.
+        sharpness: array of total sharpness ρ_Q values.
+        spectral_sharpness: array of spectral sharpness values (optional).
+        directional_sharpness: array of directional sharpness values (optional).
+        title: plot title.
+        save_path: path to save figure.
+    """
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+
+    ax.plot(steps, np.array(sharpness), color='#377eb8',
+            linewidth=2, label='ρ_Q (total)')
+
+    if spectral_sharpness is not None:
+        ax.plot(steps, np.array(spectral_sharpness), color='#ff7f00',
+                linewidth=1.5, alpha=0.8, label='ρ_spectral (STA-bound)')
+
+    if directional_sharpness is not None:
+        ax.plot(steps, np.array(directional_sharpness), color='#4daf4a',
+                linewidth=1.5, alpha=0.8, label='ρ_directional (WSR-bound)')
+
+    # Add fill between decomposition components
+    if spectral_sharpness is not None and directional_sharpness is not None:
+        ax.fill_between(steps, 0, np.array(spectral_sharpness),
+                        alpha=0.1, color='#ff7f00')
+        ax.fill_between(steps, np.array(spectral_sharpness),
+                        np.array(spectral_sharpness) + np.array(directional_sharpness),
+                        alpha=0.1, color='#4daf4a')
+
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Sharpness')
+    ax.set_title(title)
+    ax.legend(fontsize=8, loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax

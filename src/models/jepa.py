@@ -33,6 +33,7 @@ from .gac import GradientAllocatedCapacity
 from .sta import SpectralTransportAlignment
 from .puc import PredictionUncertaintyCalibration
 from .rdc import RepresentationDriftCompensation
+from .wsr import WorkspaceSharpnessRegularization
 
 
 class TextSpanJEPAConfig:
@@ -176,6 +177,15 @@ class TextSpanJEPAConfig:
         self.rdc_warmup_steps = kwargs.get('rdc_warmup_steps', 500)
         self.rdc_k_workspace = kwargs.get('rdc_k_workspace', None)
         self.lambda_rdc = kwargs.get('lambda_rdc', 0.0)
+
+        # WSR: Workspace Sharpness Regularization (novel mechanism #16)
+        self.use_wsr = kwargs.get('use_wsr', False)
+        self.wsr_rho = kwargs.get('wsr_rho', 0.05)
+        self.wsr_eta = kwargs.get('wsr_eta', 0.01)
+        self.wsr_ema_beta = kwargs.get('wsr_ema_beta', 0.999)
+        self.wsr_warmup_steps = kwargs.get('wsr_warmup_steps', 500)
+        self.wsr_mode = kwargs.get('wsr_mode', 'gradient')
+        self.lambda_wsr = kwargs.get('lambda_wsr', 0.0)
 
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
@@ -457,6 +467,19 @@ class TextSpanJEPA(nn.Module):
         else:
             self.rdc = None
 
+        # Mechanism 16: WSR — Workspace Sharpness Regularization
+        if getattr(config, 'use_wsr', False):
+            self.wsr = WorkspaceSharpnessRegularization(
+                embed_dim=config.embed_dim,
+                rho=getattr(config, 'wsr_rho', 0.05),
+                eta=getattr(config, 'wsr_eta', 0.01),
+                ema_beta=getattr(config, 'wsr_ema_beta', 0.999),
+                warmup_steps=getattr(config, 'wsr_warmup_steps', 500),
+                mode=getattr(config, 'wsr_mode', 'gradient'),
+            )
+        else:
+            self.wsr = None
+
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
@@ -686,6 +709,16 @@ class TextSpanJEPA(nn.Module):
             loss_rdc = _zero_loss
             rdc_info = {}
 
+        # WSR: Workspace Sharpness Regularization
+        # Penalizes sharp minima on Gr(k,D) for workspace Q
+        if self.wsr is not None and self.jawp is not None:
+            k_active_wsr = int(self.jawp.active_k.item())
+            ws_Q_wsr = self.jawp.workspace_Q.data[:, :k_active_wsr]
+            loss_wsr, wsr_info = self.wsr(ws_Q_wsr, step=current_step)
+        else:
+            loss_wsr = _zero_loss
+            wsr_info = {}
+
         total_loss = (
             self.config.lambda_span * loss_span
             + future_weight * loss_future
@@ -703,6 +736,7 @@ class TextSpanJEPA(nn.Module):
             + self.config.lambda_sta * loss_sta
             + self.config.lambda_puc * loss_puc
             + self.config.lambda_rdc * loss_rdc
+            + self.config.lambda_wsr * loss_wsr
         )
 
         loss_dict = {
@@ -723,6 +757,7 @@ class TextSpanJEPA(nn.Module):
             'loss_sta': loss_sta.item(),
             'loss_puc': loss_puc.item(),
             'loss_rdc': loss_rdc.item(),
+            'loss_wsr': loss_wsr.item(),
             'decoder_accuracy': decoder_acc.item(),
             'future_weight': future_weight,
         }
@@ -748,6 +783,8 @@ class TextSpanJEPA(nn.Module):
             loss_dict.update({f"puc_{k}": v for k, v in puc_info.items()})
         if rdc_info:
             loss_dict.update({f"rdc_{k}": v for k, v in rdc_info.items()})
+        if wsr_info:
+            loss_dict.update({f"wsr_{k}": v for k, v in wsr_info.items()})
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 
