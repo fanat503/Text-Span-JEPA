@@ -69,7 +69,7 @@ class EMATauSchedule:
     - Late training: target should be stable (higher tau)
     """
 
-    def __init__(self, tau_start=0.996, tau_end=1.0, total_steps=100000):
+    def __init__(self, tau_start=0.996, tau_end=0.9999, total_steps=100000):
         self.tau_start = tau_start
         self.tau_end = tau_end
         self.total_steps = total_steps
@@ -80,3 +80,17 @@ class EMATauSchedule:
         # I-JEPA formula: ema[0] + i*(ema[1]-ema[0])/total_steps
         i = min(self._step, self.total_steps)
         return self.tau_start + i * (self.tau_end - self.tau_start) / self.total_steps
+
+    def step_cosine(self):
+        """Cosine EMA schedule — smoother transition from C-JEPA best practices.
+
+        C-JEPA (NeurIPS 2024 Spotlight) uses cosineA smoother tau transition
+        to avoid sudden target encoder freezing. Cosine spends more time
+        in the intermediate regime where the target is learning but stable.
+
+        tau(t) = tau_end + (tau_start - tau_end) * 0.5 * (1 + cos(π * t / T))
+        """
+        self._step += 1
+        i = min(self._step, self.total_steps)
+        progress = i / self.total_steps
+        return self.tau_end + (self.tau_start - self.tau_end) * 0.5 * (1.0 + math.cos(math.pi * progress))

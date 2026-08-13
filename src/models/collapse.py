@@ -1117,7 +1117,25 @@ class CollapseDiagnostics(nn.Module):
             components = [anti_collapse, spectral, rank_util, alignment,
                           uniformity, cka, svcca, alpha_norm, ws_util, ws_flatness]
 
-            weighted_sum = sum(w * c for w, c in zip(weights, components))
+            # Adaptive weight reweighting (Reviewer R6 response):
+            # Components near collapse (close to 0) get UP-weighted
+            # so workspace_quality drops sharply when any component fails.
+            # This prevents a bad component from being hidden by others.
+            # Formula: w_adaptive = w_base * (1 + alpha * exp(-c / tau))
+            # where alpha=0.5, tau=0.3 — gentle reweighting.
+            _ADAPT_ALPHA = 0.5
+            _ADAPT_TAU = 0.3
+            weights_adapt = []
+            for w, c in zip(weights, components):
+                urgency = math.exp(-max(c, 0.0) / _ADAPT_TAU)  # high when c near 0
+                weights_adapt.append(w * (1.0 + _ADAPT_ALPHA * urgency))
+            # Renormalize so sum(weights_adapt) = sum(weights)
+            w_sum_orig = sum(weights)
+            w_sum_adapt = sum(weights_adapt)
+            if w_sum_adapt > 0:
+                weights_adapt = [w * w_sum_orig / w_sum_adapt for w in weights_adapt]
+
+            weighted_sum = sum(w * c for w, c in zip(weights_adapt, components))
 
             # Geometric mean bonus
             product = 1.0
