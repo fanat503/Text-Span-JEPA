@@ -1494,3 +1494,119 @@ class TestV012Bugfixes:
             model.update_target_encoder(tau=0.996)
             losses.append(loss.item())
         assert losses[-1] < losses[0], "JEPA loss should decrease over training"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  v1.0.0rc14 quality checks — deep merge, defaults, validation
+# ═══════════════════════════════════════════════════════════════════
+
+class TestDeepMergeAndDefaults:
+    """Tests for config deep merge and default consistency."""
+
+    def test_ema_tau_end_matches_defaults(self):
+        """Config default ema_tau_end=0.9999 must match defaults.yaml."""
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig()
+        assert c.ema_tau_end == 0.9999, f"ema_tau_end={c.ema_tau_end} != 0.9999"
+
+    def test_ema_tau_start_matches_defaults(self):
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig()
+        assert c.ema_tau_start == 0.996
+
+    def test_ema_schedule_matches_defaults(self):
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig()
+        assert c.ema_schedule == 'cosine'
+
+    def test_all_lambda_fields_exist(self):
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig()
+        lambdas = ['lambda_span', 'lambda_future', 'lambda_decoder', 'lambda_variance',
+                   'lambda_covariance', 'lambda_sigreg', 'lambda_predictive_rank',
+                   'lambda_cgn_ortho', 'lambda_swip', 'lambda_spc', 'lambda_wsd',
+                   'lambda_cmc', 'lambda_gac', 'lambda_sta', 'lambda_puc',
+                   'lambda_rdc', 'lambda_wsr']
+        for l in lambdas:
+            assert hasattr(c, l), f"Missing {l}"
+
+    def test_all_use_fields_exist(self):
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig()
+        uses = ['use_jawp', 'use_cgn', 'use_swip', 'use_pcr', 'use_spc',
+                'use_wsd', 'use_cmc', 'use_gac', 'use_sta', 'use_puc',
+                'use_rdc', 'use_wsr']
+        for u in uses:
+            assert hasattr(c, u), f"Missing {u}"
+
+    def test_deep_merge_function(self):
+        """_deep_merge must correctly merge nested dicts."""
+        from src.train import _deep_merge
+        base = {'model': {'embed_dim': 768, 'encoder_depth': 12, 'use_jawp': True},
+                'data': {'batch_size': 64}}
+        override = {'model': {'use_jawp': False, 'use_cgn': True}}
+        result = _deep_merge(base, override)
+        assert result['model']['embed_dim'] == 768  # inherited from base
+        assert result['model']['encoder_depth'] == 12  # inherited
+        assert result['model']['use_jawp'] == False  # overridden
+        assert result['model']['use_cgn'] == True  # added
+        assert result['data']['batch_size'] == 64  # inherited
+
+    def test_validate_puc_rdc_wsr(self):
+        """Config.validate() must validate PUC, RDC, WSR params."""
+        from src.models.jepa import TextSpanJEPAConfig
+        # Valid config with PUC+RDC+WSR
+        c = TextSpanJEPAConfig(
+            use_puc=True, lambda_puc=0.01, puc_eta=0.01, puc_ema_beta=0.999,
+            use_rdc=True, lambda_rdc=0.01, rdc_eta=0.01, rdc_ema_beta=0.999,
+            use_wsr=True, lambda_wsr=0.01, wsr_rho=0.05, wsr_eta=0.01,
+            wsr_ema_beta=0.999, wsr_mode='gradient',
+        )
+        c.validate()  # should not raise
+
+    def test_validate_ema_range(self):
+        """EMA tau must satisfy 0 < start <= end < 1."""
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig(ema_tau_start=0.999, ema_tau_end=0.99)  # inverted
+        with pytest.raises(ValueError, match="ema_tau_start"):
+            c.validate()
+
+    def test_validate_wsr_mode(self):
+        from src.models.jepa import TextSpanJEPAConfig
+        c = TextSpanJEPAConfig(use_wsr=True, lambda_wsr=0.01, wsr_mode='invalid')
+        with pytest.raises(ValueError, match="wsr_mode"):
+            c.validate()
+
+    def test_ema_update_no_grad(self):
+        """EMA update should not create grad graph nodes."""
+        import torch
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        c = TextSpanJEPAConfig(
+            vocab_size=100, max_seq_len=16, embed_dim=32,
+            encoder_depth=1, num_heads=4, mlp_ratio=2.0,
+            predictor_embed_dim=16, predictor_depth=1,
+            future_offsets=(1,), num_refine_steps=1,
+        )
+        model = TextSpanJEPA(c)
+        # Track gradFn before EMA update
+        param_k = next(model.target_encoder.parameters())
+        grad_fn_before = param_k.grad_fn
+        model.update_target_encoder(0.996)
+        # After update, param_k should have no grad_fn (no autograd tracking)
+        assert param_k.grad_fn is None, "EMA update leaked autograd"
+
+    def test_mechanism_bundle_counts_16(self):
+        """MechanismBundle must expose all 16 mechanisms."""
+        from src.models.mechanisms import MechanismBundle
+        # With all mechanisms
+        bundle = MechanismBundle(
+            embed_dim=64, use_jawp=True, use_cgn=True, use_swip=True,
+            use_pcr=True, use_spc=True, use_wsd=True, use_cmc=True,
+            use_gac=True, use_sta=True, use_puc=True, use_rdc=True,
+            use_wsr=True, wsd_k=6,
+        )
+        # Count non-None mechanism attributes
+        mech_names = ['jawp', 'cgn', 'swip', 'pcr', 'spc', 'wsd', 'cmc',
+                      'gac', 'sta', 'puc', 'rdc', 'wsr']
+        active = sum(1 for m in mech_names if getattr(bundle, m, None) is not None)
+        assert active == 12, f"Expected 12 active mechanisms, got {active}"

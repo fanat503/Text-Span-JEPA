@@ -69,7 +69,7 @@ class TextSpanJEPAConfig:
 
         # EMA target encoder
         self.ema_tau_start = kwargs.get('ema_tau_start', 0.996)
-        self.ema_tau_end = kwargs.get('ema_tau_end', 0.9996)
+        self.ema_tau_end = kwargs.get('ema_tau_end', 0.9999)
         self.ema_schedule = kwargs.get('ema_schedule', 'cosine')
 
         # Loss weights
@@ -287,6 +287,43 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"sta_ema_beta must be in (0,1), got {self.sta_ema_beta}")
             if self.sta_warmup_steps < 0:
                 raise ValueError(f"sta_warmup_steps must be >= 0, got {self.sta_warmup_steps}")
+        if self.use_puc:
+            if self.lambda_puc < 0:
+                raise ValueError(f"lambda_puc must be >= 0, got {self.lambda_puc}")
+            if self.puc_eta < 0:
+                raise ValueError(f"puc_eta must be >= 0, got {self.puc_eta}")
+            if not (0 < self.puc_ema_beta < 1):
+                raise ValueError(f"puc_ema_beta must be in (0,1), got {self.puc_ema_beta}")
+            if self.puc_warmup_steps < 0:
+                raise ValueError(f"puc_warmup_steps must be >= 0, got {self.puc_warmup_steps}")
+        if self.use_rdc:
+            if self.lambda_rdc < 0:
+                raise ValueError(f"lambda_rdc must be >= 0, got {self.lambda_rdc}")
+            if self.rdc_eta < 0:
+                raise ValueError(f"rdc_eta must be >= 0, got {self.rdc_eta}")
+            if not (0 < self.rdc_ema_beta < 1):
+                raise ValueError(f"rdc_ema_beta must be in (0,1), got {self.rdc_ema_beta}")
+            if self.rdc_warmup_steps < 0:
+                raise ValueError(f"rdc_warmup_steps must be >= 0, got {self.rdc_warmup_steps}")
+        if self.use_wsr:
+            if self.lambda_wsr < 0:
+                raise ValueError(f"lambda_wsr must be >= 0, got {self.lambda_wsr}")
+            if self.wsr_rho <= 0:
+                raise ValueError(f"wsr_rho must be > 0, got {self.wsr_rho}")
+            if self.wsr_eta < 0:
+                raise ValueError(f"wsr_eta must be >= 0, got {self.wsr_eta}")
+            if not (0 < self.wsr_ema_beta < 1):
+                raise ValueError(f"wsr_ema_beta must be in (0,1), got {self.wsr_ema_beta}")
+            if self.wsr_warmup_steps < 0:
+                raise ValueError(f"wsr_warmup_steps must be >= 0, got {self.wsr_warmup_steps}")
+            if self.wsr_mode not in ('gradient', 'hessian', 'param'):
+                raise ValueError(f"wsr_mode must be gradient/hessian/param, got '{self.wsr_mode}'")
+        # EMA tau range check
+        if not (0 < self.ema_tau_start <= self.ema_tau_end < 1.0):
+            raise ValueError(
+                f"ema_tau_start={self.ema_tau_start} must be in (0, ema_tau_end) "
+                f"and ema_tau_end={self.ema_tau_end} must be in (ema_tau_start, 1.0)"
+            )
         return True
 
 
@@ -483,12 +520,16 @@ class TextSpanJEPA(nn.Module):
     def update_target_encoder(self, tau):
         """EMA update: param_k <- tau * param_k + (1 - tau) * param_q.
 
-        Micro-opt: precompute (1 - tau) outside loop.
+        Micro-opts:
+          1. precompute (1 - tau) outside loop
+          2. @torch.no_grad to skip autograd tracking
+          3. in-place mul_ + add_ (no intermediate allocation)
         I-JEPA pattern: called once per training step.
         """
-        one_minus_tau = 1.0 - tau
-        for param_q, param_k in zip(self.encoder.parameters(), self.target_encoder.parameters()):
-            param_k.data.mul_(tau).add_(one_minus_tau * param_q.data)
+        with torch.no_grad():
+            one_minus_tau = 1.0 - tau
+            for param_q, param_k in zip(self.encoder.parameters(), self.target_encoder.parameters()):
+                param_k.data.mul_(tau).add_(param_q.data, alpha=one_minus_tau)
 
     def _future_loss_weight(self, current_step):
         if self.config.future_warmup_steps <= 0:

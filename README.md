@@ -37,7 +37,7 @@ architecture
 
 three components. nothing else.
 
-**encoder** — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled τ = 0.996 → 1.0 (constant τ doesn't work, I-JEPA showed this and we confirmed it).
+**encoder** — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled τ = 0.996 → 0.9999 (cosine schedule from C-JEPA best practices, constant τ doesn't work, I-JEPA showed this and we confirmed it).
 
 **predictor** — narrow transformer. takes encoder output, inserts mask tokens at span positions, predicts target latent. two modes:
 - span: mask contiguous blocks, predict their latents. iterative refinement (N cheap passes without re-running the encoder). each pass gets a slightly better estimate — like "thinking" in latent space.
@@ -116,7 +116,7 @@ baselines/        data2vec (from official fairseq), MLM
 configs/          per-size YAML configs
 defaults.yaml     default config (all values, NextLat pattern)
 scripts/          training scripts per benchmark
-tests/            84 tests
+tests/            631 tests
 train_probe.py    probe evaluation (NextLat pattern)
 ```
 

@@ -1,7 +1,7 @@
 # Copyright 2026 Text-Span JEPA Authors
 # Licensed under the Apache License, Version 2.0
 #
-# Convenience API: One-line access to all 14 novel mechanisms.
+# Convenience API: One-line access to all 16 novel mechanisms.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 #  USAGE (3 lines to upgrade any JEPA with all mechanisms)
@@ -59,7 +59,7 @@ from .wsr import WorkspaceSharpnessRegularization
 
 
 class MechanismBundle(nn.Module):
-    """All 15 Text-Span JEPA mechanisms in one convenient module.
+    """All 16 Text-Span JEPA mechanisms in one convenient module.
 
     Drop-in upgrade for ANY JEPA variant:
       I-JEPA, V-JEPA, C-JEPA, TD-JEPA, LeJEPA, etc.

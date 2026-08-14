@@ -30,6 +30,27 @@ logger = logging.getLogger()
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Deep merge for defaults + experiment config
+# ═══════════════════════════════════════════════════════════════════
+
+def _deep_merge(base, override):
+    """Recursively merge override dict into base dict.
+
+    Lists and scalars from override replace base values.
+    Nested dicts are merged recursively.
+    This enables ablation configs that only specify mechanism flags
+    to inherit all other settings from defaults.yaml.
+    """
+    result = base.copy()
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Model name normalization — handles config suffixes
 # ═══════════════════════════════════════════════════════════════════
 
@@ -880,9 +901,30 @@ if __name__ == '__main__':
                         default='config/wikitext/textspanjepa_wikitext_small.yaml')
     parser.add_argument('--output_dir', type=str, default=None,
                         help='Override output directory')
+    parser.add_argument('--no_defaults', action='store_true',
+                        help='Skip merging defaults.yaml (use config as-is)')
     args = parser.parse_args()
+
+    # ── Deep-merge with defaults.yaml ──────────────────────────────
+    # Ablation configs only override mechanism flags; all other fields
+    # come from defaults.yaml. Without this merge, ablation configs
+    # are broken (missing embed_dim, encoder_depth, etc.).
+    # I-JEPA / C-JEPA pattern: base config + experiment overrides.
     with open(args.fname, 'r') as f:
         config = yaml.safe_load(f)
+
+    if not args.no_defaults:
+        # Find defaults.yaml (same directory as train.py, or repo root)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        defaults_path = os.path.join(script_dir, 'defaults.yaml')
+        if not os.path.exists(defaults_path):
+            # Try repo root
+            defaults_path = os.path.join(script_dir, '..', 'defaults.yaml')
+        if os.path.exists(defaults_path):
+            with open(defaults_path, 'r') as f:
+                defaults = yaml.safe_load(f)
+            config = _deep_merge(defaults, config)
+
     if args.output_dir is not None:
         config.setdefault('logging', {})['folder'] = args.output_dir
     main(config)
