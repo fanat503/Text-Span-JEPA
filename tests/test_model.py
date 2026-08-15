@@ -1610,3 +1610,80 @@ class TestDeepMergeAndDefaults:
                       'gac', 'sta', 'puc', 'rdc', 'wsr']
         active = sum(1 for m in mech_names if getattr(bundle, m, None) is not None)
         assert active == 12, f"Expected 12 active mechanisms, got {active}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  GWP Framework tests — unified branding, groups, DAG
+# ═══════════════════════════════════════════════════════════════════
+
+class TestGWPFramk:
+    """Tests for GWP (Grassmann Workspace Prediction) unified framework."""
+
+    def test_gwp_import(self):
+        """GWP must be importable as the main entry point."""
+        from src.models.mechanisms import GWP
+        assert GWP.FRAMEWORK_NAME == "GWP"
+        assert GWP.FRAMEWORK_FULL == "Grassmann Workspace Prediction"
+        assert GWP.N_MECHANISMS == 16
+        assert GWP.N_GROUPS == 3
+
+    def test_gwp_alias(self):
+        """GWPFramework must be an alias for GWP."""
+        from src.models.mechanisms import GWP, GWPFramework
+        assert GWPFramework is GWP
+
+    def test_gwp_mechanism_groups(self):
+        """GWP must organize mechanisms into 3 groups."""
+        from src.models.mechanisms import GWP
+        g = GWP(embed_dim=64, use_jawp=True, use_cgn=True,
+                 use_wsd=True, wsd_k=6, use_sta=True)
+        groups = g.mechanism_groups()
+        assert 'core' in groups
+        assert 'routing' in groups
+        assert 'stability' in groups
+        assert 'jawp' in groups['core']
+        assert 'cgn' in groups['routing']
+        assert 'wsd' in groups['stability']
+
+    def test_gwp_dependency_dag(self):
+        """Dependency DAG must show JAWP as root."""
+        from src.models.mechanisms import GWP
+        g = GWP(embed_dim=64, use_jawp=True, use_wsd=True, wsd_k=6,
+                use_swip=True, use_wsr=True)
+        dag = g.dependency_dag()
+        # WSD depends on JAWP
+        assert 'jawp' in dag.get('wsd', [])
+        # SWIP depends on JAWP
+        assert 'jawp' in dag.get('swip', [])
+        # WSR depends on JAWP
+        assert 'jawp' in dag.get('wsr', [])
+        # JAWP has no dependencies
+        assert dag.get('jawp', []) == []
+
+    def test_gwp_active_mechanisms(self):
+        """active_mechanisms must return only non-None mechanisms."""
+        from src.models.mechanisms import GWP
+        g = GWP(embed_dim=64, use_jawp=True, use_cgn=True)
+        active = g.active_mechanisms()
+        assert 'jawp' in active
+        assert 'cgn' in active
+        assert 'wsd' not in active  # not enabled
+        assert 'sta' not in active
+
+    def test_gwp_from_config(self):
+        """GWP.from_config must work like MechanismBundle.from_config."""
+        from src.models.mechanisms import GWP
+        from src.models.jepa import TextSpanJEPAConfig
+        config = TextSpanJEPAConfig(embed_dim=64, use_jawp=True, use_sta=True)
+        g = GWP.from_config(config)
+        assert g.jawp is not None
+        assert g.sta is not None
+
+    def test_gwp_summary(self):
+        """GWP.summary() must return human-readable string."""
+        from src.models.mechanisms import GWP
+        g = GWP(embed_dim=64, use_jawp=True, use_sta=True, use_puc=True)
+        s = g.summary()
+        assert "GWP" in s
+        assert "Grassmann" in s
+        assert "3 mechanisms" in s

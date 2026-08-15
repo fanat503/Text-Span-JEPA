@@ -1359,3 +1359,150 @@ def plot_wsr_sharpness(
     if save_path:
         fig.savefig(save_path)
     return fig, ax
+
+
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Additional per-mechanism plots (GWP framework)
+# ═══════════════════════════════════════════════════════════════════
+
+def plot_jawp_workspace_evolution(
+    steps, active_k, workspace_loss,
+    title='JAWP Workspace Evolution', save_path=None):
+    """Plot JAWP workspace dimension curriculum and loss."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    ax1.plot(steps, active_k, color='#e41a1c', linewidth=1.5)
+    ax1.set_xlabel('Training step')
+    ax1.set_ylabel('Active k (workspace dim)')
+    ax1.set_title('"Workspace Dimension Curriculum')
+    ax1.grid(True, alpha=0.3)
+    ax2.plot(steps, workspace_loss, color='#377eb8', linewidth=1.5)
+    ax2.set_xlabel('Training step')
+    ax2.set_ylabel('JAWP Loss')
+    ax2.set_yscale('log')
+    ax2.set_title('Workspace Prediction Loss')
+    ax2.grid(True, alpha=0.3)
+    fig.suptitle(title, fontsize=12, fontweight='bold')
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path)
+    return fig, (ax1, ax2)
+
+
+def plot_cgn_gate_distribution(
+    steps, gate_visible, gate_masked,
+    title='CGN Gate Distribution', save_path=None):
+    """Plot CGN visible vs masked gate probabilities over training."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(steps, gate_visible, color='#2ca02c', linewidth=1.5,
+            label='g_visible', alpha=0.8)
+    ax.plot(steps, gate_masked, color='#d62728', linewidth=1.5,
+            label='g_masked', alpha=0.8)
+    ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5,
+              label='Equal split')
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Gate probability')
+    ax.set_title(title)
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+def plot_pcr_cascade_capacity(
+    steps, level_losses, level_dims=None,
+    title='PCR Cascade Capacity', save_path=None):
+    """Plot PCR per-level prediction losses and capacity bounds."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(10, 5))
+    if not level_losses or not level_losses[0]:
+        ax.text(0.5, 0.5, 'No data', ha='center', va='center',
+                transform=ax.transAxes)
+        return fig, ax
+    n_levels = len(level_losses[0])
+    colors = plt.cm.Set2(np.linspace(0, 1, max(n_levels, 1)))
+    for l in range(n_levels):
+        vals = [step[l] for step in level_losses if l < len(step)]
+        ax.plot(steps[:len(vals)], vals, color=colors[l],
+                linewidth=1.5, label=f'Level {l}')
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Level loss')
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+def plot_gwp_mechanism_summary(
+    mechanism_names, mechanism_losses,
+    title='GWP Mechanism Loss Summary', save_path=None):
+    """Plot summary of all active GWP mechanism losses."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(10, 5))
+    x = range(len(mechanism_names))
+    colors = plt.cm.tab20(np.linspace(0, 1, max(len(mechanism_names), 1)))
+    ax.bar(x, mechanism_losses, color=colors)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(mechanism_names, rotation=45, ha='right', fontsize=8)
+    ax.set_ylabel('Loss contribution')
+    ax.set_title(title)
+    if all(v > 0 for v in mechanism_losses):
+        ax.set_yscale('log')
+    ax.grid(True, alpha=0.3, axis='y')
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+def plot_ema_tau_schedule(
+    steps, tau_values, schedule_type='cosine',
+    title='EMA Tau Schedule', save_path=None):
+    """Plot EMA tau schedule over training."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(steps, tau_values, color='#1f77b4', linewidth=2,
+            label=f'{schedule_type} schedule')
+    ax.axhline(y=1.0, color='red', linestyle='--', alpha=0.5,
+              label='tau=1.0 (frozen -- BAD)')
+    ax.axhline(y=0.9999, color='green', linestyle='--', alpha=0.5,
+              label='tau=0.9999 (near-frozen -- GOOD)')
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('EMA tau')
+    ax.set_title(title)
+    ax.legend(fontsize=9)
+    ax.set_ylim(0.990, 1.0001)
+    ax.grid(True, alpha=0.3)
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
+
+
+def plot_workspace_quality_components(
+    steps, components_dict,
+    title='Workspace Quality Components', save_path=None):
+    """Plot each component of the 10-component workspace_quality metric."""
+    _ensure_mpl()
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for name, values in components_dict.items():
+        ax.plot(steps[:len(values)], values, linewidth=1.2,
+                label=name, alpha=0.8)
+    ax.set_xlabel('Training step')
+    ax.set_ylabel('Component value')
+    ax.set_title(title)
+    ax.legend(fontsize=7, ncol=2, loc='lower left')
+    ax.grid(True, alpha=0.3)
+    if save_path:
+        fig.savefig(save_path)
+    return fig, ax
