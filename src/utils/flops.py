@@ -3,16 +3,13 @@
 # FLOPs computation for scaling analysis
 # Based on Kaplan et al. (2020) scaling laws + PaLM compute formulas
 
-import math
-from typing import Dict
-
 
 def estimate_transformer_flops(
     num_params: int,
     seq_len: int,
     batch_size: int = 1,
     forward_only: bool = False,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Estimate FLOPs for a transformer forward+backward pass.
 
     From Kaplan et al. (2020): C ≈ 6N for forward+backward
@@ -42,11 +39,11 @@ def estimate_transformer_flops(
     total_flops = flops_per_token * seq_len * batch_size
 
     return {
-        'total_flops': float(total_flops),
-        'flops_per_token': float(flops_per_token),
-        'flops_per_sample': float(flops_per_token * seq_len),
-        'gflops': total_flops / 1e9,
-        'tflops': total_flops / 1e12,
+        "total_flops": float(total_flops),
+        "flops_per_token": float(flops_per_token),
+        "flops_per_sample": float(flops_per_token * seq_len),
+        "gflops": total_flops / 1e9,
+        "tflops": total_flops / 1e12,
     }
 
 
@@ -55,7 +52,7 @@ def estimate_training_flops(
     seq_len: int,
     batch_size: int,
     num_steps: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Estimate total FLOPs for a training run.
 
     Args:
@@ -68,27 +65,27 @@ def estimate_training_flops(
         dict with total FLOPs for the training run
     """
     per_step = estimate_transformer_flops(num_params, seq_len, batch_size)
-    total = per_step['total_flops'] * num_steps
+    total = per_step["total_flops"] * num_steps
 
     return {
-        'total_flops': total,
-        'gflops': total / 1e9,
-        'tflops': total / 1e12,
-        'pflops': total / 1e15,
-        'per_step_gflops': per_step['gflops'],
-        'num_steps': num_steps,
+        "total_flops": total,
+        "gflops": total / 1e9,
+        "tflops": total / 1e12,
+        "pflops": total / 1e15,
+        "per_step_gflops": per_step["gflops"],
+        "num_steps": num_steps,
     }
 
 
 def model_size_category(num_params: int) -> str:
     """Categorize model by size for scaling analysis."""
     if num_params < 10e6:
-        return 'tiny'
+        return "tiny"
     elif num_params < 100e6:
-        return 'small'
+        return "small"
     elif num_params < 500e6:
-        return 'base'
+        return "base"
     elif num_params < 2e9:
-        return 'large'
+        return "large"
     else:
-        return 'xl'
+        return "xl"

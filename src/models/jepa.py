@@ -6,33 +6,33 @@
 # VICReg collapse prevention from C-JEPA (NeurIPS 2024) / VICReg (ICLR 2022)
 
 import copy
-import math
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-from .encoder import TextSpanJEPAEncoder
-from .predictor import TextSpanJPAPredictor
-from .decoder import TiedTokenDecoder
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+from .cgn import ContextualGatingNetwork
+from .cmc import CrossMaskConsistency
 from .collapse import (
-    VarianceRegularization,
+    CollapseDiagnostics,
     CovarianceRegularization,
     TargetCentering,
-    CollapseDiagnostics,
+    VarianceRegularization,
 )
-from .sigreg import SIGReg, WeakSIGReg, VISReg
-from .jspace import JSpaceMetrics
-from .jawp import JAWPModule
-from .cgn import ContextualGatingNetwork
-from .swip import SWIPModule
-from .pcr import PredictiveCascadeRefinement
-from .spc import SpectralPredictiveCoding
-from .wsd import WorkspaceSyncDrift
-from .cmc import CrossMaskConsistency
+from .decoder import TiedTokenDecoder
+from .encoder import TextSpanJEPAEncoder
 from .gac import GradientAllocatedCapacity
-from .sta import SpectralTransportAlignment
+from .jawp import JAWPModule
+from .jspace import JSpaceMetrics
+from .pcr import PredictiveCascadeRefinement
+from .predictor import TextSpanJPAPredictor
 from .puc import PredictionUncertaintyCalibration
 from .rdc import RepresentationDriftCompensation
+from .sigreg import SIGReg
+from .spc import SpectralPredictiveCoding
+from .sta import SpectralTransportAlignment
+from .swip import SWIPModule
+from .wsd import WorkspaceSyncDrift
 from .wsr import WorkspaceSharpnessRegularization
 
 
@@ -41,163 +41,169 @@ class TextSpanJEPAConfig:
 
     def __init__(self, **kwargs):
         # Encoder
-        self.vocab_size = kwargs.get('vocab_size', 50304)
-        self.max_seq_len = kwargs.get('max_seq_len', 512)
-        self.embed_dim = kwargs.get('embed_dim', 768)
-        self.encoder_depth = kwargs.get('encoder_depth', 12)
-        self.num_heads = kwargs.get('num_heads', 12)
-        self.mlp_ratio = kwargs.get('mlp_ratio', 4.0)
-        self.qkv_bias = kwargs.get('qkv_bias', True)
-        self.drop_rate = kwargs.get('drop_rate', 0.0)
-        self.attn_drop_rate = kwargs.get('attn_drop_rate', 0.0)
-        self.drop_path_rate = kwargs.get('drop_path_rate', 0.1)
-        self.gradient_checkpointing = kwargs.get('gradient_checkpointing', False)
+        self.vocab_size = kwargs.get("vocab_size", 50304)
+        self.max_seq_len = kwargs.get("max_seq_len", 512)
+        self.embed_dim = kwargs.get("embed_dim", 768)
+        self.encoder_depth = kwargs.get("encoder_depth", 12)
+        self.num_heads = kwargs.get("num_heads", 12)
+        self.mlp_ratio = kwargs.get("mlp_ratio", 4.0)
+        self.qkv_bias = kwargs.get("qkv_bias", True)
+        self.drop_rate = kwargs.get("drop_rate", 0.0)
+        self.attn_drop_rate = kwargs.get("attn_drop_rate", 0.0)
+        self.drop_path_rate = kwargs.get("drop_path_rate", 0.1)
+        self.gradient_checkpointing = kwargs.get("gradient_checkpointing", False)
 
         # Predictor
-        self.predictor_embed_dim = kwargs.get('predictor_embed_dim', 384)
-        self.predictor_depth = kwargs.get('predictor_depth', 6)
-        self.future_offsets = kwargs.get('future_offsets', (1, 4, 16))
-        self.num_refine_steps = kwargs.get('num_refine_steps', 3)
-        self.refine_step_size = kwargs.get('refine_step_size', 0.1)
+        self.predictor_embed_dim = kwargs.get("predictor_embed_dim", 384)
+        self.predictor_depth = kwargs.get("predictor_depth", 6)
+        self.future_offsets = kwargs.get("future_offsets", (1, 4, 16))
+        self.num_refine_steps = kwargs.get("num_refine_steps", 3)
+        self.refine_step_size = kwargs.get("refine_step_size", 0.1)
 
         # Decoder
-        self.decoder_bias = kwargs.get('decoder_bias', False)
+        self.decoder_bias = kwargs.get("decoder_bias", False)
 
         # Collapse prevention
-        self.variance_margin = kwargs.get('variance_margin', 1.0)
-        self.centering_momentum = kwargs.get('centering_momentum', 0.9)
+        self.variance_margin = kwargs.get("variance_margin", 1.0)
+        self.centering_momentum = kwargs.get("centering_momentum", 0.9)
 
         # EMA target encoder
-        self.ema_tau_start = kwargs.get('ema_tau_start', 0.996)
-        self.ema_tau_end = kwargs.get('ema_tau_end', 0.9999)
-        self.ema_schedule = kwargs.get('ema_schedule', 'cosine')
+        self.ema_tau_start = kwargs.get("ema_tau_start", 0.996)
+        self.ema_tau_end = kwargs.get("ema_tau_end", 0.9999)
+        self.ema_schedule = kwargs.get("ema_schedule", "cosine")
 
         # Loss weights
-        self.lambda_span = kwargs.get('lambda_span', 1.0)
-        self.lambda_future = kwargs.get('lambda_future', 0.5)
-        self.lambda_decoder = kwargs.get('lambda_decoder', 0.1)
-        self.lambda_variance = kwargs.get('lambda_variance', 0.1)
-        self.lambda_covariance = kwargs.get('lambda_covariance', 0.04)
+        self.lambda_span = kwargs.get("lambda_span", 1.0)
+        self.lambda_future = kwargs.get("lambda_future", 0.5)
+        self.lambda_decoder = kwargs.get("lambda_decoder", 0.1)
+        self.lambda_variance = kwargs.get("lambda_variance", 0.1)
+        self.lambda_covariance = kwargs.get("lambda_covariance", 0.04)
 
         # Mask curriculum
-        self.mask_ratio_start = kwargs.get('mask_ratio_start', 0.15)
-        self.mask_ratio_end = kwargs.get('mask_ratio_end', 0.35)
+        self.mask_ratio_start = kwargs.get("mask_ratio_start", 0.15)
+        self.mask_ratio_end = kwargs.get("mask_ratio_end", 0.35)
 
         # Future loss warmup
-        self.future_warmup_steps = kwargs.get('future_warmup_steps', 0)
+        self.future_warmup_steps = kwargs.get("future_warmup_steps", 0)
 
         # SIGReg
-        self.lambda_sigreg = kwargs.get('lambda_sigreg', 0.0)
-        self.sigreg_n_sketches = kwargs.get('sigreg_n_sketches', 64)
-        self.sigreg_n_integration_points = kwargs.get('sigreg_n_integration_points', 17)
-        self.sigreg_sigma = kwargs.get('sigreg_sigma', 1.0)
+        self.lambda_sigreg = kwargs.get("lambda_sigreg", 0.0)
+        self.sigreg_n_sketches = kwargs.get("sigreg_n_sketches", 64)
+        self.sigreg_n_integration_points = kwargs.get("sigreg_n_integration_points", 17)
+        self.sigreg_sigma = kwargs.get("sigreg_sigma", 1.0)
 
         # J-Space
-        self.jspace_variance_threshold = kwargs.get('jspace_variance_threshold', 0.10)
-        self.jspace_k_workspace = kwargs.get('jspace_k_workspace', 25)
+        self.jspace_variance_threshold = kwargs.get("jspace_variance_threshold", 0.10)
+        self.jspace_k_workspace = kwargs.get("jspace_k_workspace", 25)
 
         # JAWP
-        self.use_jawp = kwargs.get('use_jawp', True)
-        self.jawk_k_start = kwargs.get('jawk_k_start', 1)
-        self.jawk_k_end = kwargs.get('jawk_k_end', None)
-        self.jawk_curriculum_steps = kwargs.get('jawk_curriculum_steps', 10000)
-        self.jawk_alpha = kwargs.get('jawk_alpha', 0.1)
-        self.jawk_init = kwargs.get('jawk_init', 'identity')
+        self.use_jawp = kwargs.get("use_jawp", True)
+        self.jawk_k_start = kwargs.get("jawk_k_start", 1)
+        self.jawk_k_end = kwargs.get("jawk_k_end", None)
+        self.jawk_curriculum_steps = kwargs.get("jawk_curriculum_steps", 10000)
+        self.jawk_alpha = kwargs.get("jawk_alpha", 0.1)
+        self.jawk_init = kwargs.get("jawk_init", "identity")
 
         # Predictive Rank Regularization (from JAWP module)
-        self.lambda_predictive_rank = kwargs.get('lambda_predictive_rank', 0.0)
+        self.lambda_predictive_rank = kwargs.get("lambda_predictive_rank", 0.0)
 
         # CGN: Contextual Gating Network (novel mechanism #6)
-        self.use_cgn = kwargs.get('use_cgn', False)
-        self.cgn_n_groups = kwargs.get('cgn_n_groups', 8)
-        self.cgn_tau_start = kwargs.get('cgn_tau_start', 1.0)
-        self.cgn_tau_end = kwargs.get('cgn_tau_end', 0.1)
-        self.cgn_anneal_steps = kwargs.get('cgn_anneal_steps', 10000)
-        self.lambda_cgn_ortho = kwargs.get('lambda_cgn_ortho', 0.0)
+        self.use_cgn = kwargs.get("use_cgn", False)
+        self.cgn_n_groups = kwargs.get("cgn_n_groups", 8)
+        self.cgn_tau_start = kwargs.get("cgn_tau_start", 1.0)
+        self.cgn_tau_end = kwargs.get("cgn_tau_end", 0.1)
+        self.cgn_anneal_steps = kwargs.get("cgn_anneal_steps", 10000)
+        self.lambda_cgn_ortho = kwargs.get("lambda_cgn_ortho", 0.0)
 
         # SWIP: Selective Whitening with Information Preservation (novel mechanism #7)
-        self.use_swip = kwargs.get('use_swip', False)
-        self.swip_k_workspace = kwargs.get('swip_k_workspace', None)
-        self.swip_target_variance = kwargs.get('swip_target_variance', 1.0)
-        self.lambda_swip = kwargs.get('lambda_swip', 0.0)
+        self.use_swip = kwargs.get("use_swip", False)
+        self.swip_k_workspace = kwargs.get("swip_k_workspace", None)
+        self.swip_target_variance = kwargs.get("swip_target_variance", 1.0)
+        self.lambda_swip = kwargs.get("lambda_swip", 0.0)
 
         # PCR: Predictive Cascade Refinement (novel mechanism #8)
-        self.use_pcr = kwargs.get('use_pcr', False)
-        self.pcr_n_levels = kwargs.get('pcr_n_levels', 3)
-        self.pcr_level_dims = kwargs.get('pcr_level_dims', None)
-        self.pcr_warmup_steps = kwargs.get('pcr_warmup_steps', 1000)
+        self.use_pcr = kwargs.get("use_pcr", False)
+        self.pcr_n_levels = kwargs.get("pcr_n_levels", 3)
+        self.pcr_level_dims = kwargs.get("pcr_level_dims", None)
+        self.pcr_warmup_steps = kwargs.get("pcr_warmup_steps", 1000)
 
         # SPC: Spectral Predictive Coding (novel mechanism #9)
-        self.use_spc = kwargs.get('use_spc', False)
-        self.spc_n_bands = kwargs.get('spc_n_bands', 8)
-        self.spc_init = kwargs.get('spc_init', 'dct')
-        self.lambda_spc = kwargs.get('lambda_spc', 0.0)
+        self.use_spc = kwargs.get("use_spc", False)
+        self.spc_n_bands = kwargs.get("spc_n_bands", 8)
+        self.spc_init = kwargs.get("spc_init", "dct")
+        self.lambda_spc = kwargs.get("lambda_spc", 0.0)
 
         # WSD: Workspace-Target Synchronization Drift (novel mechanism #10)
-        self.use_wsd = kwargs.get('use_wsd', False)
-        self.wsd_k = kwargs.get('wsd_k', None)
-        self.wsd_sync_interval = kwargs.get('wsd_sync_interval', 100)
-        self.wsd_ema_beta = kwargs.get('wsd_ema_beta', 0.99)
-        self.lambda_wsd = kwargs.get('lambda_wsd', 0.0)
+        self.use_wsd = kwargs.get("use_wsd", False)
+        self.wsd_k = kwargs.get("wsd_k", None)
+        self.wsd_sync_interval = kwargs.get("wsd_sync_interval", 100)
+        self.wsd_ema_beta = kwargs.get("wsd_ema_beta", 0.99)
+        self.lambda_wsd = kwargs.get("lambda_wsd", 0.0)
 
         # CMC: Cross-Mask Consistency Regularization (novel mechanism #11)
-        self.use_cmc = kwargs.get('use_cmc', False)
-        self.cmc_second_mask_ratio = kwargs.get('cmc_second_mask_ratio', None)
-        self.cmc_min_overlap_ratio = kwargs.get('cmc_min_overlap_ratio', 0.2)
-        self.cmc_mode = kwargs.get('cmc_mode', 'interval')
-        self.cmc_interval = kwargs.get('cmc_interval', 10)
-        self.lambda_cmc = kwargs.get('lambda_cmc', 0.0)
+        self.use_cmc = kwargs.get("use_cmc", False)
+        self.cmc_second_mask_ratio = kwargs.get("cmc_second_mask_ratio", None)
+        self.cmc_min_overlap_ratio = kwargs.get("cmc_min_overlap_ratio", 0.2)
+        self.cmc_mode = kwargs.get("cmc_mode", "interval")
+        self.cmc_interval = kwargs.get("cmc_interval", 10)
+        self.lambda_cmc = kwargs.get("lambda_cmc", 0.0)
 
         # GAC: Gradient-Allocated Capacity (novel mechanism #12)
-        self.use_gac = kwargs.get('use_gac', False)
-        self.gac_gamma = kwargs.get('gac_gamma', 0.01)
-        self.gac_tau_grad = kwargs.get('gac_tau_grad', 1e-4)
-        self.gac_warmup_steps = kwargs.get('gac_warmup_steps', 1000)
-        self.lambda_gac = kwargs.get('lambda_gac', 0.0)
+        self.use_gac = kwargs.get("use_gac", False)
+        self.gac_gamma = kwargs.get("gac_gamma", 0.01)
+        self.gac_tau_grad = kwargs.get("gac_tau_grad", 1e-4)
+        self.gac_warmup_steps = kwargs.get("gac_warmup_steps", 1000)
+        self.lambda_gac = kwargs.get("lambda_gac", 0.0)
 
         # STA: Spectral Transport Alignment (novel mechanism #13)
-        self.use_sta = kwargs.get('use_sta', False)
-        self.sta_eta = kwargs.get('sta_eta', 0.01)
-        self.sta_ema_beta = kwargs.get('sta_ema_beta', 0.999)
-        self.sta_warmup_steps = kwargs.get('sta_warmup_steps', 500)
-        self.sta_update_interval = kwargs.get('sta_update_interval', 10)
+        self.use_sta = kwargs.get("use_sta", False)
+        self.sta_eta = kwargs.get("sta_eta", 0.01)
+        self.sta_ema_beta = kwargs.get("sta_ema_beta", 0.999)
+        self.sta_warmup_steps = kwargs.get("sta_warmup_steps", 500)
+        self.sta_update_interval = kwargs.get("sta_update_interval", 10)
 
         # PUC: Prediction Uncertainty Calibration (novel mechanism #14)
-        self.use_puc = kwargs.get('use_puc', False)
-        self.puc_eta = kwargs.get('puc_eta', 0.01)
-        self.puc_ema_beta = kwargs.get('puc_ema_beta', 0.999)
-        self.puc_warmup_steps = kwargs.get('puc_warmup_steps', 500)
-        self.lambda_sta = kwargs.get('lambda_sta', 0.0)
-        self.lambda_puc = kwargs.get('lambda_puc', 0.0)
+        self.use_puc = kwargs.get("use_puc", False)
+        self.puc_eta = kwargs.get("puc_eta", 0.01)
+        self.puc_ema_beta = kwargs.get("puc_ema_beta", 0.999)
+        self.puc_warmup_steps = kwargs.get("puc_warmup_steps", 500)
+        self.lambda_sta = kwargs.get("lambda_sta", 0.0)
+        self.lambda_puc = kwargs.get("lambda_puc", 0.0)
 
         # RDC: Representation Drift Compensation (novel mechanism #15)
-        self.use_rdc = kwargs.get('use_rdc', False)
-        self.rdc_eta = kwargs.get('rdc_eta', 0.01)
-        self.rdc_ema_beta = kwargs.get('rdc_ema_beta', 0.999)
-        self.rdc_warmup_steps = kwargs.get('rdc_warmup_steps', 500)
-        self.rdc_k_workspace = kwargs.get('rdc_k_workspace', None)
-        self.lambda_rdc = kwargs.get('lambda_rdc', 0.0)
+        self.use_rdc = kwargs.get("use_rdc", False)
+        self.rdc_eta = kwargs.get("rdc_eta", 0.01)
+        self.rdc_ema_beta = kwargs.get("rdc_ema_beta", 0.999)
+        self.rdc_warmup_steps = kwargs.get("rdc_warmup_steps", 500)
+        self.rdc_k_workspace = kwargs.get("rdc_k_workspace", None)
+        self.lambda_rdc = kwargs.get("lambda_rdc", 0.0)
 
         # WSR: Workspace Sharpness Regularization (novel mechanism #16)
-        self.use_wsr = kwargs.get('use_wsr', False)
-        self.wsr_rho = kwargs.get('wsr_rho', 0.05)
-        self.wsr_eta = kwargs.get('wsr_eta', 0.01)
-        self.wsr_ema_beta = kwargs.get('wsr_ema_beta', 0.999)
-        self.wsr_warmup_steps = kwargs.get('wsr_warmup_steps', 500)
-        self.wsr_mode = kwargs.get('wsr_mode', 'gradient')
-        self.lambda_wsr = kwargs.get('lambda_wsr', 0.0)
+        self.use_wsr = kwargs.get("use_wsr", False)
+        self.wsr_rho = kwargs.get("wsr_rho", 0.05)
+        self.wsr_eta = kwargs.get("wsr_eta", 0.01)
+        self.wsr_ema_beta = kwargs.get("wsr_ema_beta", 0.999)
+        self.wsr_warmup_steps = kwargs.get("wsr_warmup_steps", 500)
+        self.wsr_mode = kwargs.get("wsr_mode", "gradient")
+        self.lambda_wsr = kwargs.get("lambda_wsr", 0.0)
 
     def validate(self):
         if self.embed_dim % self.num_heads != 0:
-            raise ValueError(f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}")
+            raise ValueError(
+                f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}"
+            )
         if self.predictor_embed_dim % self.num_heads != 0:
-            raise ValueError(f"predictor_embed_dim={self.predictor_embed_dim} must be divisible by num_heads={self.num_heads}")
+            raise ValueError(
+                f"predictor_embed_dim={self.predictor_embed_dim} must be divisible by num_heads={self.num_heads}"
+            )
         if self.encoder_depth < 1:
             raise ValueError(f"encoder_depth must be >= 1, got {self.encoder_depth}")
         if self.predictor_depth < 1:
             raise ValueError(f"predictor_depth must be >= 1, got {self.predictor_depth}")
-        if self.ema_schedule not in ('cosine', 'linear'):
-            raise ValueError(f"ema_schedule must be 'cosine' or 'linear', got '{self.ema_schedule}'")
+        if self.ema_schedule not in ("cosine", "linear"):
+            raise ValueError(
+                f"ema_schedule must be 'cosine' or 'linear', got '{self.ema_schedule}'"
+            )
         if self.lambda_span < 0:
             raise ValueError(f"lambda_span must be >= 0, got {self.lambda_span}")
         if self.lambda_future < 0:
@@ -210,35 +216,51 @@ class TextSpanJEPAConfig:
             if self.jawk_k_start < 1:
                 raise ValueError(f"jawk_k_start must be >= 1, got {self.jawk_k_start}")
             if self.jawk_k_end is not None and self.jawk_k_end > self.embed_dim:
-                raise ValueError(f"jawk_k_end={self.jawk_k_end} cannot exceed embed_dim={self.embed_dim}")
+                raise ValueError(
+                    f"jawk_k_end={self.jawk_k_end} cannot exceed embed_dim={self.embed_dim}"
+                )
             if self.jawk_k_end is not None and self.jawk_k_start > self.jawk_k_end:
                 raise ValueError(f"jawk_k_start={self.jawk_k_start} > jawk_k_end={self.jawk_k_end}")
             if self.jawk_alpha < 0:
                 raise ValueError(f"jawk_alpha must be >= 0, got {self.jawk_alpha}")
-            if self.jawk_init not in ('identity', 'random', 'pca'):
-                raise ValueError(f"jawk_init must be 'identity', 'random', or 'pca', got '{self.jawk_init}'")
+            if self.jawk_init not in ("identity", "random", "pca"):
+                raise ValueError(
+                    f"jawk_init must be 'identity', 'random', or 'pca', got '{self.jawk_init}'"
+                )
         if self.lambda_sigreg < 0:
             raise ValueError(f"lambda_sigreg must be >= 0, got {self.lambda_sigreg}")
         if self.lambda_sigreg > 0 and self.sigreg_sigma <= 0:
-            raise ValueError(f"sigreg_sigma must be > 0 when SIGReg is active, got {self.sigreg_sigma}")
+            raise ValueError(
+                f"sigreg_sigma must be > 0 when SIGReg is active, got {self.sigreg_sigma}"
+            )
         if self.future_warmup_steps < 0:
             raise ValueError(f"future_warmup_steps must be >= 0, got {self.future_warmup_steps}")
         if self.lambda_predictive_rank < 0:
-            raise ValueError(f"lambda_predictive_rank must be >= 0, got {self.lambda_predictive_rank}")
+            raise ValueError(
+                f"lambda_predictive_rank must be >= 0, got {self.lambda_predictive_rank}"
+            )
         if self.use_cgn:
             if self.embed_dim % self.cgn_n_groups != 0:
-                raise ValueError(f"embed_dim={self.embed_dim} must be divisible by cgn_n_groups={self.cgn_n_groups}")
+                raise ValueError(
+                    f"embed_dim={self.embed_dim} must be divisible by cgn_n_groups={self.cgn_n_groups}"
+                )
             if self.cgn_n_groups < 1:
                 raise ValueError(f"cgn_n_groups must be >= 1, got {self.cgn_n_groups}")
             if self.cgn_tau_start <= 0 or self.cgn_tau_end <= 0:
-                raise ValueError(f"cgn temperatures must be > 0, got start={self.cgn_tau_start}, end={self.cgn_tau_end}")
+                raise ValueError(
+                    f"cgn temperatures must be > 0, got start={self.cgn_tau_start}, end={self.cgn_tau_end}"
+                )
             if self.lambda_cgn_ortho < 0:
                 raise ValueError(f"lambda_cgn_ortho must be >= 0, got {self.lambda_cgn_ortho}")
         if self.use_swip:
             if self.swip_k_workspace is not None and self.swip_k_workspace > self.embed_dim:
-                raise ValueError(f"swip_k_workspace={self.swip_k_workspace} cannot exceed embed_dim={self.embed_dim}")
+                raise ValueError(
+                    f"swip_k_workspace={self.swip_k_workspace} cannot exceed embed_dim={self.embed_dim}"
+                )
             if self.swip_target_variance <= 0:
-                raise ValueError(f"swip_target_variance must be > 0, got {self.swip_target_variance}")
+                raise ValueError(
+                    f"swip_target_variance must be > 0, got {self.swip_target_variance}"
+                )
             if self.lambda_swip < 0:
                 raise ValueError(f"lambda_swip must be >= 0, got {self.lambda_swip}")
         if self.use_pcr:
@@ -247,17 +269,21 @@ class TextSpanJEPAConfig:
             if self.pcr_level_dims is not None:
                 total = sum(self.pcr_level_dims)
                 if total > self.embed_dim:
-                    raise ValueError(f"sum(pcr_level_dims)={total} cannot exceed embed_dim={self.embed_dim}")
+                    raise ValueError(
+                        f"sum(pcr_level_dims)={total} cannot exceed embed_dim={self.embed_dim}"
+                    )
             if self.pcr_warmup_steps < 0:
                 raise ValueError(f"pcr_warmup_steps must be >= 0, got {self.pcr_warmup_steps}")
         if self.use_spc:
             if self.embed_dim % self.spc_n_bands != 0:
-                raise ValueError(f"embed_dim={self.embed_dim} must be divisible by spc_n_bands={self.spc_n_bands}")
+                raise ValueError(
+                    f"embed_dim={self.embed_dim} must be divisible by spc_n_bands={self.spc_n_bands}"
+                )
             if self.spc_n_bands < 1:
                 raise ValueError(f"spc_n_bands must be >= 1, got {self.spc_n_bands}")
             if self.lambda_spc < 0:
                 raise ValueError(f"lambda_spc must be >= 0, got {self.lambda_spc}")
-            if self.spc_init not in ('dct', 'random'):
+            if self.spc_init not in ("dct", "random"):
                 raise ValueError(f"spc_init must be 'dct' or 'random', got '{self.spc_init}'")
         if self.use_wsd:
             if self.lambda_wsd < 0:
@@ -267,10 +293,14 @@ class TextSpanJEPAConfig:
         if self.use_cmc:
             if self.lambda_cmc < 0:
                 raise ValueError(f"lambda_cmc must be >= 0, got {self.lambda_cmc}")
-            if self.cmc_mode not in ('always', 'interval', 'reuse_encoder'):
-                raise ValueError(f"cmc_mode must be always/interval/reuse_encoder, got '{self.cmc_mode}'")
+            if self.cmc_mode not in ("always", "interval", "reuse_encoder"):
+                raise ValueError(
+                    f"cmc_mode must be always/interval/reuse_encoder, got '{self.cmc_mode}'"
+                )
             if self.cmc_min_overlap_ratio < 0 or self.cmc_min_overlap_ratio > 1:
-                raise ValueError(f"cmc_min_overlap_ratio must be in [0,1], got {self.cmc_min_overlap_ratio}")
+                raise ValueError(
+                    f"cmc_min_overlap_ratio must be in [0,1], got {self.cmc_min_overlap_ratio}"
+                )
         if self.use_gac:
             if self.lambda_gac < 0:
                 raise ValueError(f"lambda_gac must be >= 0, got {self.lambda_gac}")
@@ -316,7 +346,7 @@ class TextSpanJEPAConfig:
                 raise ValueError(f"wsr_ema_beta must be in (0,1), got {self.wsr_ema_beta}")
             if self.wsr_warmup_steps < 0:
                 raise ValueError(f"wsr_warmup_steps must be >= 0, got {self.wsr_warmup_steps}")
-            if self.wsr_mode not in ('gradient', 'hessian', 'param'):
+            if self.wsr_mode not in ("gradient", "hessian", "param"):
                 raise ValueError(f"wsr_mode must be gradient/hessian/param, got '{self.wsr_mode}'")
         # EMA tau range check
         if not (0 < self.ema_tau_start <= self.ema_tau_end < 1.0):
@@ -335,11 +365,16 @@ class TextSpanJEPA(nn.Module):
         self.config = config
 
         self.encoder = TextSpanJEPAEncoder(
-            vocab_size=config.vocab_size, max_seq_len=config.max_seq_len,
-            embed_dim=config.embed_dim, depth=config.encoder_depth,
-            num_heads=config.num_heads, mlp_ratio=config.mlp_ratio,
-            qkv_bias=config.qkv_bias, drop_rate=config.drop_rate,
-            attn_drop_rate=config.attn_drop_rate, drop_path_rate=config.drop_path_rate,
+            vocab_size=config.vocab_size,
+            max_seq_len=config.max_seq_len,
+            embed_dim=config.embed_dim,
+            depth=config.encoder_depth,
+            num_heads=config.num_heads,
+            mlp_ratio=config.mlp_ratio,
+            qkv_bias=config.qkv_bias,
+            drop_rate=config.drop_rate,
+            attn_drop_rate=config.attn_drop_rate,
+            drop_path_rate=config.drop_path_rate,
             gradient_checkpointing=config.gradient_checkpointing,
         )
 
@@ -348,21 +383,28 @@ class TextSpanJEPA(nn.Module):
             p.requires_grad = False
 
         self.predictor = TextSpanJPAPredictor(
-            embed_dim=config.embed_dim, predictor_embed_dim=config.predictor_embed_dim,
-            depth=config.predictor_depth, num_heads=config.num_heads,
-            mlp_ratio=config.mlp_ratio, max_seq_len=config.max_seq_len,
-            future_offsets=config.future_offsets, num_refine_steps=config.num_refine_steps,
+            embed_dim=config.embed_dim,
+            predictor_embed_dim=config.predictor_embed_dim,
+            depth=config.predictor_depth,
+            num_heads=config.num_heads,
+            mlp_ratio=config.mlp_ratio,
+            max_seq_len=config.max_seq_len,
+            future_offsets=config.future_offsets,
+            num_refine_steps=config.num_refine_steps,
             refine_step_size=config.refine_step_size,
         )
 
         self.decoder = TiedTokenDecoder(
-            embed_dim=config.embed_dim, vocab_size=config.vocab_size,
+            embed_dim=config.embed_dim,
+            vocab_size=config.vocab_size,
             bias=config.decoder_bias,
         )
 
         self.variance_reg = VarianceRegularization(margin=config.variance_margin)
         self.covariance_reg = CovarianceRegularization()
-        self.target_centering = TargetCentering(dim=config.embed_dim, momentum=config.centering_momentum)
+        self.target_centering = TargetCentering(
+            dim=config.embed_dim, momentum=config.centering_momentum
+        )
         self.diagnostics = CollapseDiagnostics()
 
         self.sigreg = SIGReg(
@@ -505,14 +547,14 @@ class TextSpanJEPA(nn.Module):
             self.rdc = None
 
         # Mechanism 16: WSR — Workspace Sharpness Regularization
-        if getattr(config, 'use_wsr', False):
+        if getattr(config, "use_wsr", False):
             self.wsr = WorkspaceSharpnessRegularization(
                 embed_dim=config.embed_dim,
-                rho=getattr(config, 'wsr_rho', 0.05),
-                eta=getattr(config, 'wsr_eta', 0.01),
-                ema_beta=getattr(config, 'wsr_ema_beta', 0.999),
-                warmup_steps=getattr(config, 'wsr_warmup_steps', 500),
-                mode=getattr(config, 'wsr_mode', 'gradient'),
+                rho=getattr(config, "wsr_rho", 0.05),
+                eta=getattr(config, "wsr_eta", 0.01),
+                ema_beta=getattr(config, "wsr_ema_beta", 0.999),
+                warmup_steps=getattr(config, "wsr_warmup_steps", 500),
+                mode=getattr(config, "wsr_mode", "gradient"),
             )
         else:
             self.wsr = None
@@ -528,7 +570,9 @@ class TextSpanJEPA(nn.Module):
         """
         with torch.no_grad():
             one_minus_tau = 1.0 - tau
-            for param_q, param_k in zip(self.encoder.parameters(), self.target_encoder.parameters()):
+            for param_q, param_k in zip(
+                self.encoder.parameters(), self.target_encoder.parameters()
+            ):
                 param_k.data.mul_(tau).add_(param_q.data, alpha=one_minus_tau)
 
     def _future_loss_weight(self, current_step):
@@ -539,19 +583,30 @@ class TextSpanJEPA(nn.Module):
         progress = current_step / self.config.future_warmup_steps
         return self.config.lambda_future * progress
 
-    def compute_loss_with_targets(self, masked_input_ids, original_input_ids,
-                                   mask_positions, current_step=0, total_steps=1):
+    def compute_loss_with_targets(
+        self, masked_input_ids, original_input_ids, mask_positions, current_step=0, total_steps=1
+    ):
         if masked_input_ids.size(0) == 0:
             zero = torch.tensor(0.0, device=masked_input_ids.device)
-            return zero, {'loss': 0.0, 'loss_span': 0.0, 'loss_future': 0.0,
-                          'loss_decoder': 0.0, 'loss_variance': 0.0,
-                          'loss_covariance': 0.0, 'decoder_accuracy': 0.0,
-                          'future_weight': 0.0}, {}
+            return (
+                zero,
+                {
+                    "loss": 0.0,
+                    "loss_span": 0.0,
+                    "loss_future": 0.0,
+                    "loss_decoder": 0.0,
+                    "loss_variance": 0.0,
+                    "loss_covariance": 0.0,
+                    "decoder_accuracy": 0.0,
+                    "future_weight": 0.0,
+                },
+                {},
+            )
 
         h_online, token_embeds_online = self.encoder(masked_input_ids)
 
         with torch.no_grad():
-            self._prev_target_h = getattr(self, '_prev_target_h', None)
+            self._prev_target_h = getattr(self, "_prev_target_h", None)
             h_target, _ = self.target_encoder(original_input_ids)
             h_target = self.target_centering(h_target)
             h_target = F.layer_norm(h_target, (h_target.size(-1),))
@@ -562,7 +617,7 @@ class TextSpanJEPA(nn.Module):
         if self.cgn is not None:
             h_online, cgn_info = self.cgn(h_online, mask_positions, step=current_step)
 
-        span_preds, num_masked, valid_mask, future_losses, future_preds = self.predictor(
+        span_preds, _num_masked, valid_mask, future_losses, _future_preds = self.predictor(
             h_online, mask_positions, token_embeds_online, h_target.detach()
         )
 
@@ -604,7 +659,7 @@ class TextSpanJEPA(nn.Module):
                 else:
                     loss_span = F.smooth_l1_loss(
                         span_preds[:, :min_cols][combined_valid],
-                        target_gathered[:, :min_cols][combined_valid]
+                        target_gathered[:, :min_cols][combined_valid],
                     )
                     jawp_info = {}
             else:
@@ -657,9 +712,7 @@ class TextSpanJEPA(nn.Module):
             # cos_sim(g_visible, g_masked) — we want this close to 0 (orthogonal)
             probs_v = F.softmax(self.cgn.gate_logits_visible, dim=-1)[:, 1]
             probs_m = F.softmax(self.cgn.gate_logits_masked, dim=-1)[:, 1]
-            cos_sim = F.cosine_similarity(
-                probs_v.unsqueeze(0), probs_m.unsqueeze(0)
-            )
+            cos_sim = F.cosine_similarity(probs_v.unsqueeze(0), probs_m.unsqueeze(0))
             # loss = cos_sim² → minimize to make gates orthogonal
             loss_cgn_ortho = cos_sim.pow(2)
         else:
@@ -683,8 +736,16 @@ class TextSpanJEPA(nn.Module):
         lambda_spc = self.config.lambda_spc
         if lambda_spc > 0 and self.spc is not None:
             if valid_mask.any():
-                spc_z_pred = span_preds[:, :min_cols][combined_valid] if combined_valid.any() else span_preds.reshape(-1, span_preds.size(-1))
-                spc_z_target = target_gathered[:, :min_cols][combined_valid] if combined_valid.any() else h_target.detach().reshape(-1, h_target.size(-1))
+                spc_z_pred = (
+                    span_preds[:, :min_cols][combined_valid]
+                    if combined_valid.any()
+                    else span_preds.reshape(-1, span_preds.size(-1))
+                )
+                spc_z_target = (
+                    target_gathered[:, :min_cols][combined_valid]
+                    if combined_valid.any()
+                    else h_target.detach().reshape(-1, h_target.size(-1))
+                )
                 loss_spc, spc_info = self.spc(spc_z_pred, spc_z_target)
             else:
                 loss_spc = _zero_loss
@@ -699,7 +760,8 @@ class TextSpanJEPA(nn.Module):
             k_active = int(self.jawp.active_k.item())
             Q_ws = self.jawp.workspace_Q[:, :k_active]
             loss_wsd, wsd_info = self.wsd.compute_drift(
-                Q_ws, h_target=h_target.detach(), step=current_step)
+                Q_ws, h_target=h_target.detach(), step=current_step
+            )
         else:
             loss_wsd = _zero_loss
             wsd_info = {}
@@ -781,29 +843,29 @@ class TextSpanJEPA(nn.Module):
         )
 
         loss_dict = {
-            'loss': total_loss.item(),
-            'loss_span': loss_span.item(),
-            'loss_future': loss_future.item(),
-            'loss_decoder': loss_decoder.item(),
-            'loss_variance': loss_variance.item(),
-            'loss_covariance': loss_covariance.item(),
-            'loss_sigreg': loss_sigreg.item(),
-            'loss_predictive_rank': loss_pred_rank.item(),
-            'loss_cgn_ortho': loss_cgn_ortho.item(),
-            'loss_swip': loss_swip.item(),
-            'loss_spc': loss_spc.item(),
-            'loss_wsd': loss_wsd.item(),
-            'loss_cmc': loss_cmc.item(),
-            'loss_gac': loss_gac.item(),
-            'loss_sta': loss_sta.item(),
-            'loss_puc': loss_puc.item(),
-            'loss_rdc': loss_rdc.item(),
-            'loss_wsr': loss_wsr.item(),
-            'decoder_accuracy': decoder_acc.item(),
-            'future_weight': future_weight,
+            "loss": total_loss.item(),
+            "loss_span": loss_span.item(),
+            "loss_future": loss_future.item(),
+            "loss_decoder": loss_decoder.item(),
+            "loss_variance": loss_variance.item(),
+            "loss_covariance": loss_covariance.item(),
+            "loss_sigreg": loss_sigreg.item(),
+            "loss_predictive_rank": loss_pred_rank.item(),
+            "loss_cgn_ortho": loss_cgn_ortho.item(),
+            "loss_swip": loss_swip.item(),
+            "loss_spc": loss_spc.item(),
+            "loss_wsd": loss_wsd.item(),
+            "loss_cmc": loss_cmc.item(),
+            "loss_gac": loss_gac.item(),
+            "loss_sta": loss_sta.item(),
+            "loss_puc": loss_puc.item(),
+            "loss_rdc": loss_rdc.item(),
+            "loss_wsr": loss_wsr.item(),
+            "decoder_accuracy": decoder_acc.item(),
+            "future_weight": future_weight,
         }
         for d, l in future_losses.items():
-            loss_dict[f'loss_future_d{d}'] = l.item()
+            loss_dict[f"loss_future_d{d}"] = l.item()
         if jawp_info:
             loss_dict.update({f"jawk_{k}": v for k, v in jawp_info.items()})
         if cgn_info:
@@ -829,21 +891,24 @@ class TextSpanJEPA(nn.Module):
         if pcr_info:
             loss_dict.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 
-        diag_dict = self.diagnostics.compute(h_online.detach(), h_target.detach(),
-                                              prev_target_h=self._prev_target_h)
-        diag_dict['target_center_norm'] = self.target_centering.center.norm().item()
-        diag_dict['mask_fraction'] = mask_positions.float().mean().item()
+        diag_dict = self.diagnostics.compute(
+            h_online.detach(), h_target.detach(), prev_target_h=self._prev_target_h
+        )
+        diag_dict["target_center_norm"] = self.target_centering.center.norm().item()
+        diag_dict["mask_fraction"] = mask_positions.float().mean().item()
 
-        jspace_dict = self.jspace_metrics.compute(h_online.detach(), h_target.detach(), predictor_h=None)
+        jspace_dict = self.jspace_metrics.compute(
+            h_online.detach(), h_target.detach(), predictor_h=None
+        )
         diag_dict.update(jspace_dict)
 
         if h_online.size(0) * h_online.size(1) >= 2:
-            diag_dict['embedding_std_per_dim'] = h_online.std(dim=(0, 1)).mean().item()
+            diag_dict["embedding_std_per_dim"] = h_online.std(dim=(0, 1)).mean().item()
         else:
-            diag_dict['embedding_std_per_dim'] = 0.0
+            diag_dict["embedding_std_per_dim"] = 0.0
 
         # workspace_quality composite metric — single scalar health score
-        diag_dict['workspace_quality'] = CollapseDiagnostics.workspace_quality(diag_dict)
+        diag_dict["workspace_quality"] = CollapseDiagnostics.workspace_quality(diag_dict)
 
         self._prev_target_h = h_target.detach().clone()
         return total_loss, loss_dict, diag_dict
@@ -866,7 +931,7 @@ class TextSpanJEPA(nn.Module):
         """
         if self.cmc is None:
             zero = torch.tensor(0.0, device=z_pred_primary.device)
-            return zero, {'cmc_loss': 0.0, 'cmc_skipped': True}
+            return zero, {"cmc_loss": 0.0, "cmc_skipped": True}
         return self.cmc(z_pred_primary, z_pred_secondary, overlap_mask)
 
     def get_num_params(self, non_embedding=True):

@@ -135,9 +135,10 @@
 #    - target_variance: background noise floor σ² (default 1.0)
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class SWIPModule(nn.Module):
@@ -162,9 +163,14 @@ class SWIPModule(nn.Module):
         eps: numerical stability constant (default 1e-6).
     """
 
-    def __init__(self, embed_dim=768, k_workspace=None,
-                 target_variance=1.0, use_jawp_workspace=True,
-                 eps=1e-6):
+    def __init__(
+        self,
+        embed_dim=768,
+        k_workspace=None,
+        target_variance=1.0,
+        use_jawp_workspace=True,
+        eps=1e-6,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.k_workspace = k_workspace or max(embed_dim // 10, 1)
@@ -172,9 +178,9 @@ class SWIPModule(nn.Module):
         self.use_jawp_workspace = use_jawp_workspace
         self.eps = eps
 
-        assert 1 <= self.k_workspace <= embed_dim, (
-            f"k_workspace={self.k_workspace} must be in [1, {embed_dim}]"
-        )
+        assert (
+            1 <= self.k_workspace <= embed_dim
+        ), f"k_workspace={self.k_workspace} must be in [1, {embed_dim}]"
 
     def forward(self, z, workspace_Q=None):
         """Compute SWIP loss.
@@ -211,7 +217,7 @@ class SWIPModule(nn.Module):
 
         if workspace_Q is not None and self.use_jawp_workspace:
             # Use JAWP workspace: project onto Q and (I - QQ^T)
-            Q = workspace_Q[:, :min(workspace_Q.shape[1], k)]
+            Q = workspace_Q[:, : min(workspace_Q.shape[1], k)]
             k_actual = Q.shape[1]
 
             # Workspace eigenvalues: diagonal of Q^T Cov Q
@@ -258,8 +264,8 @@ class SWIPModule(nn.Module):
         else:
             # Use top-k PCA directions (eigenvalues are sorted ascending)
             # eigenvalues[0] = smallest, eigenvalues[-1] = largest
-            bg_eigenvalues = eigenvalues[:D - k]  # smallest D-k (background)
-            ws_eigenvalues = eigenvalues[D - k:]  # largest k (workspace)
+            bg_eigenvalues = eigenvalues[: D - k]  # smallest D-k (background)
+            ws_eigenvalues = eigenvalues[D - k :]  # largest k (workspace)
 
             # Background log-eigenvalue matching
             log_bg = bg_eigenvalues.clamp(min=self.eps).log()
@@ -280,21 +286,23 @@ class SWIPModule(nn.Module):
             anisotropy = eigenvalues.max() / (eigenvalues.min() + self.eps)
 
             # Background uniformity: std(bg_eigenvalues) / mean(bg_eigenvalues)
-            bg_eigs = eigenvalues[:D - k] if workspace_Q is None else eigenvalues[:D - k]
+            bg_eigs = eigenvalues[: D - k] if workspace_Q is None else eigenvalues[: D - k]
             bg_mean_val = bg_eigs.mean()
             bg_std_val = bg_eigs.std() if bg_eigs.numel() > 1 else torch.tensor(0.0)
             bg_uniformity = bg_std_val / (bg_mean_val + self.eps)
 
             # Workspace concentration: fraction of total variance in workspace
-            ws_var_frac = eigenvalues[D - k:].sum() / (eigenvalues.sum() + self.eps)
+            ws_var_frac = eigenvalues[D - k :].sum() / (eigenvalues.sum() + self.eps)
 
         info = {
-            'anisotropy_ratio': anisotropy.item(),
-            'bg_uniformity': bg_uniformity.item(),
-            'ws_variance_fraction': ws_var_frac.item(),
-            'spectral_gap': spectral_gap.item() if isinstance(spectral_gap, torch.Tensor) else spectral_gap,
-            'k_workspace': k,
-            'bg_dim': D - k,
+            "anisotropy_ratio": anisotropy.item(),
+            "bg_uniformity": bg_uniformity.item(),
+            "ws_variance_fraction": ws_var_frac.item(),
+            "spectral_gap": (
+                spectral_gap.item() if isinstance(spectral_gap, torch.Tensor) else spectral_gap
+            ),
+            "k_workspace": k,
+            "bg_dim": D - k,
         }
 
         return loss, info
@@ -367,31 +375,33 @@ class SWIPModule(nn.Module):
             alpha = 0.0
 
         return {
-            'effective_rank': eff_rank,
-            'condition_number': cond,
-            'anisotropy_ratio': cond,
-            'ws_variance_fraction': ws_signal / (total.item() + self.eps),
-            'bg_variance_fraction': bg_signal / (total.item() + self.eps),
-            'spectral_gap': normalized_gap,
-            'spectral_gap_raw': gap,
-            'bg_snr': bg_snr,
-            'power_law_alpha': alpha,
-            'k_workspace': k,
-            'eigenvalues': eigenvalues.tolist(),
-            'ws_eigenvalues': ws_eigs.tolist(),
-            'bg_eigenvalues': bg_eigs.tolist(),
+            "effective_rank": eff_rank,
+            "condition_number": cond,
+            "anisotropy_ratio": cond,
+            "ws_variance_fraction": ws_signal / (total.item() + self.eps),
+            "bg_variance_fraction": bg_signal / (total.item() + self.eps),
+            "spectral_gap": normalized_gap,
+            "spectral_gap_raw": gap,
+            "bg_snr": bg_snr,
+            "power_law_alpha": alpha,
+            "k_workspace": k,
+            "eigenvalues": eigenvalues.tolist(),
+            "ws_eigenvalues": ws_eigs.tolist(),
+            "bg_eigenvalues": bg_eigs.tolist(),
         }
 
     def _zero_info(self):
         return {
-            'anisotropy_ratio': 0.0,
-            'bg_uniformity': 0.0,
-            'ws_variance_fraction': 0.0,
-            'spectral_gap': 0.0,
-            'k_workspace': self.k_workspace,
-            'bg_dim': self.embed_dim - self.k_workspace,
+            "anisotropy_ratio": 0.0,
+            "bg_uniformity": 0.0,
+            "ws_variance_fraction": 0.0,
+            "spectral_gap": 0.0,
+            "k_workspace": self.k_workspace,
+            "bg_dim": self.embed_dim - self.k_workspace,
         }
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, k_workspace={self.k_workspace}, '
-                f'target_variance={self.target_variance}')
+        return (
+            f"embed_dim={self.embed_dim}, k_workspace={self.k_workspace}, "
+            f"target_variance={self.target_variance}"
+        )

@@ -1,10 +1,12 @@
 # Tests for GAC (Gradient-Allocated Capacity) — mechanism #12
 
-import pytest
-import torch
 import math
 import sys
-sys.path.insert(0, '.')
+
+import pytest
+import torch
+
+sys.path.insert(0, ".")
 
 from src.models.gac import GradientAllocatedCapacity
 
@@ -17,27 +19,27 @@ class TestGACCore:
     def test_output_shape(self):
         z = torch.randn(8, self.D)
         g = torch.rand(self.D) * 1e-3
-        loss, info = self.gac(z, g, step=2000)
+        loss, _info = self.gac(z, g, step=2000)
         assert loss.dim() == 0
 
     def test_loss_non_negative(self):
         z = torch.randn(8, self.D)
         g = torch.rand(self.D) * 1e-3
-        loss, info = self.gac(z, g, step=2000)
+        loss, _info = self.gac(z, g, step=2000)
         assert loss.item() >= -1e-6
 
     def test_zero_loss_no_starved(self):
         """When all dims have sufficient gradient, GAC loss = 0."""
         z = torch.randn(8, self.D)
         g = torch.ones(self.D) * 1.0  # all above tau_grad
-        loss, info = self.gac(z, g, step=2000)
+        loss, _info = self.gac(z, g, step=2000)
         assert loss.item() < 1e-6
 
     def test_positive_loss_starved(self):
         """When some dims are starved, GAC loss > 0."""
         z = torch.randn(8, self.D)
         g = torch.ones(self.D) * 1e-6  # all below tau_grad
-        loss, info = self.gac(z, g, step=2000)
+        loss, _info = self.gac(z, g, step=2000)
         assert loss.item() > 0
 
     def test_warmup_zero_loss(self):
@@ -46,7 +48,7 @@ class TestGACCore:
         g = torch.ones(self.D) * 1e-6
         loss, info = self.gac(z, g, step=0)
         assert loss.item() == 0.0
-        assert info['gac_warmup'] is True
+        assert info["gac_warmup"] is True
 
     def test_warmup_gradual(self):
         """Warmup factor increases linearly."""
@@ -55,7 +57,7 @@ class TestGACCore:
         g = torch.ones(self.D) * 1e-6
         losses = []
         for step in [0, 50, 100, 200]:
-            loss, info = gac(z, g, step=step)
+            loss, _info = gac(z, g, step=step)
             losses.append(loss.item())
         # After warmup, loss should be >= during warmup
         assert losses[-1] >= losses[0]
@@ -65,9 +67,9 @@ class TestGACCore:
         z = torch.randn(8, self.D)
         g = torch.ones(self.D) * 1.0
         g[:20] = 1e-6  # 20 dims starved
-        loss, info = self.gac(z, g, step=2000)
-        assert info['gac_n_starved'] == 20
-        assert abs(info['gac_starved_fraction'] - 20/self.D) < 1e-6
+        _loss, info = self.gac(z, g, step=2000)
+        assert info["gac_n_starved"] == 20
+        assert abs(info["gac_starved_fraction"] - 20 / self.D) < 1e-6
 
 
 class TestGACTheorems:
@@ -123,7 +125,7 @@ class TestGACEdgeCases:
         g = torch.zeros(D)
         loss, info = gac(z, g, step=2000)
         assert loss.item() >= 0
-        assert info['gac_n_starved'] == D
+        assert info["gac_n_starved"] == D
 
     def test_none_starved(self):
         D = 32
@@ -132,7 +134,7 @@ class TestGACEdgeCases:
         g = torch.ones(D) * 100
         loss, info = gac(z, g, step=2000)
         assert loss.item() < 1e-6
-        assert info['gac_n_starved'] == 0
+        assert info["gac_n_starved"] == 0
 
     def test_single_dim_starved(self):
         D = 32
@@ -140,21 +142,21 @@ class TestGACEdgeCases:
         z = torch.randn(8, D)
         g = torch.ones(D) * 1.0
         g[5] = 1e-8  # only dim 5 starved
-        loss, info = gac(z, g, step=2000)
-        assert info['gac_n_starved'] == 1
+        _loss, info = gac(z, g, step=2000)
+        assert info["gac_n_starved"] == 1
 
     def test_large_gamma(self):
         D = 32
         gac = GradientAllocatedCapacity(embed_dim=D, gamma=1.0)
         z = torch.randn(8, D)
         g = torch.ones(D) * 1e-6
-        loss, info = gac(z, g, step=2000)
+        loss, _info = gac(z, g, step=2000)
         assert math.isfinite(loss.item())
 
     def test_repr(self):
         gac = GradientAllocatedCapacity(embed_dim=768, gamma=0.01, tau_grad=1e-4)
         r = gac.extra_repr()
-        assert '768' in r and '0.01' in r
+        assert "768" in r and "0.01" in r
 
 
 class TestGACIntegration:
@@ -165,7 +167,7 @@ class TestGACIntegration:
 
         # Simulate JAWP workspace
         Q = torch.randn(D, k)
-        U, S, Vt = torch.linalg.svd(Q, full_matrices=False)
+        U, _S, Vt = torch.linalg.svd(Q, full_matrices=False)
         Q = U[:, :k] @ Vt[:k, :]
 
         z = torch.randn(8, D)
@@ -174,9 +176,9 @@ class TestGACIntegration:
         g_background = torch.ones(D - k) * 1e-6
         grad = torch.cat([g_workspace, g_background])
 
-        loss, info = gac(z, grad, step=2000)
+        _loss, info = gac(z, grad, step=2000)
         # Background dims are starved
-        assert info['gac_n_starved'] == D - k
+        assert info["gac_n_starved"] == D - k
 
     def test_gradient_flow_through_gac(self):
         """GAC loss provides gradient to z_pred."""
@@ -191,17 +193,16 @@ class TestGACIntegration:
         warmup_factor = 1.0
         deficit = F.relu(gac.tau_grad - g.detach())
         starved = (g.detach() < gac.tau_grad).float()
-        loss = gac.gamma * warmup_factor * (deficit * (z ** 2).mean(dim=0) * starved).sum()
+        loss = gac.gamma * warmup_factor * (deficit * (z**2).mean(dim=0) * starved).sum()
         loss.backward()
 
         # Starved dimensions should have non-zero gradient
         grad_per_dim = z.grad.abs().sum(dim=0)  # (D,)
         starved_dims = (g < gac.tau_grad).nonzero().squeeze(-1)
-        assert grad_per_dim[starved_dims].min() > 0, \
-            "Starved dims should receive gradient from GAC"
+        assert grad_per_dim[starved_dims].min() > 0, "Starved dims should receive gradient from GAC"
 
 
 from torch.nn import functional as F
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

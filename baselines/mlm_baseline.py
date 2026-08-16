@@ -9,8 +9,9 @@
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+
 from src.models.encoder import TextSpanJEPAEncoder
 
 
@@ -32,23 +33,35 @@ class MLMBaseline(nn.Module):
         - decoder weight-tied to mlm_head
     """
 
-    def __init__(self, vocab_size: int = 50304, max_seq_len: int = 512,
-                 embed_dim: int = 768, depth: int = 12, num_heads: int = 12,
-                 mlp_ratio: float = 4.0, drop_rate: float = 0.1, **kwargs):
+    def __init__(
+        self,
+        vocab_size: int = 50304,
+        max_seq_len: int = 512,
+        embed_dim: int = 768,
+        depth: int = 12,
+        num_heads: int = 12,
+        mlp_ratio: float = 4.0,
+        drop_rate: float = 0.1,
+        **kwargs,
+    ):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.encoder = TextSpanJEPAEncoder(
-            vocab_size=vocab_size, max_seq_len=max_seq_len,
-            embed_dim=embed_dim, depth=depth, num_heads=num_heads,
-            mlp_ratio=mlp_ratio, drop_rate=drop_rate,
+            vocab_size=vocab_size,
+            max_seq_len=max_seq_len,
+            embed_dim=embed_dim,
+            depth=depth,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            drop_rate=drop_rate,
         )
         self.mlm_head = nn.Linear(embed_dim, vocab_size, bias=False)
         # Decoder attribute for train.py compatibility (same object, weight-tied)
         self.decoder = self.mlm_head
 
     def extra_repr(self) -> str:
-        return (f'vocab_size={self.vocab_size}, embed_dim={self.embed_dim}')
+        return f"vocab_size={self.vocab_size}, embed_dim={self.embed_dim}"
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         """Encode and project to vocabulary logits.
@@ -63,9 +76,12 @@ class MLMBaseline(nn.Module):
         logits = self.mlm_head(h)
         return logits
 
-    def compute_loss(self, masked_input_ids: torch.Tensor,
-                     original_input_ids: torch.Tensor,
-                     mask_positions: torch.Tensor) -> tuple[torch.Tensor, dict]:
+    def compute_loss(
+        self,
+        masked_input_ids: torch.Tensor,
+        original_input_ids: torch.Tensor,
+        mask_positions: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict]:
         """Compute MLM cross-entropy loss on masked positions.
 
         Args:
@@ -87,7 +103,7 @@ class MLMBaseline(nn.Module):
         # that participates in the computation graph (for gradient accumulation).
         if masked_logits.size(0) == 0:
             zero = logits.sum() * 0.0
-            return zero, {'loss_mlm': 0.0, 'mlm_accuracy': 0.0}
+            return zero, {"loss_mlm": 0.0, "mlm_accuracy": 0.0}
 
         loss = F.cross_entropy(masked_logits, masked_targets)
         # Micro-opt: compute accuracy under no_grad to avoid storing graph.
@@ -95,7 +111,7 @@ class MLMBaseline(nn.Module):
         with torch.no_grad():
             accuracy = (masked_logits.argmax(dim=-1) == masked_targets).float().mean()
         # Type-safe: ensure info dict values are plain Python floats (not torch scalars)
-        return loss, {'loss_mlm': float(loss.item()), 'mlm_accuracy': float(accuracy.item())}
+        return loss, {"loss_mlm": float(loss.item()), "mlm_accuracy": float(accuracy.item())}
 
     def get_num_params(self, non_embedding: bool = True) -> int:
         """Count model parameters."""

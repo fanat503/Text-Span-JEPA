@@ -26,11 +26,13 @@ class WarmupCosineSchedule:
             new_lr = self.start_lr + progress * (self.ref_lr - self.start_lr)
         else:
             progress = float(self._step - self.warmup_steps) / float(max(1, self.T_max))
-            new_lr = max(self.final_lr,
-                         self.final_lr + (self.ref_lr - self.final_lr) *
-                         0.5 * (1. + math.cos(math.pi * progress)))
+            new_lr = max(
+                self.final_lr,
+                self.final_lr
+                + (self.ref_lr - self.final_lr) * 0.5 * (1.0 + math.cos(math.pi * progress)),
+            )
         for group in self.optimizer.param_groups:
-            group['lr'] = new_lr
+            group["lr"] = new_lr
         return new_lr
 
 
@@ -47,15 +49,16 @@ class CosineWDSchedule:
     def step(self):
         self._step += 1
         progress = self._step / self.T_max
-        new_wd = self.final_wd + (self.ref_wd - self.final_wd) * \
-                 0.5 * (1. + math.cos(math.pi * progress))
+        new_wd = self.final_wd + (self.ref_wd - self.final_wd) * 0.5 * (
+            1.0 + math.cos(math.pi * progress)
+        )
         if self.final_wd <= self.ref_wd:
             new_wd = max(self.final_wd, new_wd)
         else:
             new_wd = min(self.final_wd, new_wd)
         for group in self.optimizer.param_groups:
-            if not group.get('WD_exclude', False):
-                group['weight_decay'] = new_wd
+            if not group.get("WD_exclude", False):
+                group["weight_decay"] = new_wd
         return new_wd
 
 
@@ -93,4 +96,6 @@ class EMATauSchedule:
         self._step += 1
         i = min(self._step, self.total_steps)
         progress = i / self.total_steps
-        return self.tau_end + (self.tau_start - self.tau_end) * 0.5 * (1.0 + math.cos(math.pi * progress))
+        return self.tau_end + (self.tau_start - self.tau_end) * 0.5 * (
+            1.0 + math.cos(math.pi * progress)
+        )

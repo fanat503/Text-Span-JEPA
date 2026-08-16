@@ -13,10 +13,7 @@
 # This creates a DIRECT link between JEPA's geometry advantage and
 # downstream performance, which is critical for the paper's narrative.
 
-import math
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
 class RepresentationGeometry:
@@ -60,12 +57,12 @@ class RepresentationGeometry:
 
             # SVD
             s = torch.linalg.svdvals(flat.float())
-            total_var = (s ** 2).sum()
+            total_var = (s**2).sum()
             if total_var == 0:
                 return 0.0
 
             # Cumulative explained variance
-            cumvar = (s ** 2).cumsum(0) / total_var
+            cumvar = (s**2).cumsum(0) / total_var
             # Find threshold
             eff_dim = (cumvar < threshold).sum().item() + 1
             return min(float(eff_dim), D)
@@ -92,7 +89,7 @@ class RepresentationGeometry:
             else:
                 flat = representations
 
-            N, D = flat.shape
+            _N, D = flat.shape
 
             # Effective dimension at 0.99 variance
             eff_dim = RepresentationGeometry.effective_dimension(flat, 0.99)
@@ -200,10 +197,10 @@ class RepresentationGeometry:
             dict with all metrics
         """
         return {
-            'effective_dimension': RepresentationGeometry.effective_dimension(representations),
-            'total_compression': RepresentationGeometry.total_compression(representations),
-            'anisotropy': RepresentationGeometry.anisotropy(representations),
-            'spectrum_decay_rate': RepresentationGeometry.spectrum_decay_rate(representations),
+            "effective_dimension": RepresentationGeometry.effective_dimension(representations),
+            "total_compression": RepresentationGeometry.total_compression(representations),
+            "anisotropy": RepresentationGeometry.anisotropy(representations),
+            "spectrum_decay_rate": RepresentationGeometry.spectrum_decay_rate(representations),
         }
 
     @staticmethod
@@ -226,8 +223,8 @@ class RepresentationGeometry:
         baseline_geom = RepresentationGeometry.compute_all(baseline_reps)
 
         # Yadav predictions for "better"
-        higher_is_better = {'effective_dimension'}
-        lower_is_better = {'total_compression', 'anisotropy', 'spectrum_decay_rate'}
+        higher_is_better = {"effective_dimension"}
+        lower_is_better = {"total_compression", "anisotropy", "spectrum_decay_rate"}
 
         comparison = {}
         for key in jepa_geom:
@@ -241,16 +238,16 @@ class RepresentationGeometry:
                 jepa_better = None
 
             comparison[key] = {
-                'jepa': j_val,
-                'baseline': b_val,
-                'diff': j_val - b_val,
-                'jepa_better': jepa_better,
+                "jepa": j_val,
+                "baseline": b_val,
+                "diff": j_val - b_val,
+                "jepa_better": jepa_better,
             }
 
         # Overall geometry advantage
-        n_better = sum(1 for v in comparison.values() if v['jepa_better'] is True)
-        n_total = sum(1 for v in comparison.values() if v['jepa_better'] is not None)
-        comparison['_geometry_advantage'] = n_better / max(n_total, 1)
+        n_better = sum(1 for v in comparison.values() if v["jepa_better"] is True)
+        n_total = sum(1 for v in comparison.values() if v["jepa_better"] is not None)
+        comparison["_geometry_advantage"] = n_better / max(n_total, 1)
 
         return comparison
 
@@ -271,9 +268,15 @@ class GeometryDegradationTest:
 
     @staticmethod
     @torch.no_grad()
-    def noise_degradation_curve(model, representations, labels,
-                                probe_fn, noise_levels=(0.01, 0.05, 0.1, 0.2, 0.5),
-                                n_trials=3, device='cpu'):
+    def noise_degradation_curve(
+        model,
+        representations,
+        labels,
+        probe_fn,
+        noise_levels=(0.01, 0.05, 0.1, 0.2, 0.5),
+        n_trials=3,
+        device="cpu",
+    ):
         """Add Gaussian noise to representations and measure geometry + accuracy.
 
         Args:
@@ -311,12 +314,10 @@ class GeometryDegradationTest:
             avg_acc = sum(acc_list) / len(acc_list)
 
             results[noise_std] = {
-                'geometry': avg_geom,
-                'accuracy': avg_acc,
-                'geometry_degradation': {
-                    k: clean_geom[k] - avg_geom[k] for k in avg_geom
-                },
-                'accuracy_degradation': clean_acc - avg_acc,
+                "geometry": avg_geom,
+                "accuracy": avg_acc,
+                "geometry_degradation": {k: clean_geom[k] - avg_geom[k] for k in avg_geom},
+                "accuracy_degradation": clean_acc - avg_acc,
             }
 
         # Correlation between geometry degradation and accuracy degradation
@@ -325,18 +326,18 @@ class GeometryDegradationTest:
         for noise_std in noise_levels:
             if noise_std > 0:
                 # Use effective_dimension degradation
-                ed_deg = results[noise_std]['geometry_degradation'].get('effective_dimension', 0)
-                a_deg = results[noise_std]['accuracy_degradation']
+                ed_deg = results[noise_std]["geometry_degradation"].get("effective_dimension", 0)
+                a_deg = results[noise_std]["accuracy_degradation"]
                 geom_degs.append(ed_deg)
                 acc_degs.append(a_deg)
 
         correlation = _pearson_r(geom_degs, acc_degs) if len(geom_degs) > 1 else 0.0
 
         return {
-            'clean_geometry': clean_geom,
-            'clean_accuracy': clean_acc,
-            'per_noise_level': results,
-            'geometry_accuracy_correlation': correlation,
+            "clean_geometry": clean_geom,
+            "clean_accuracy": clean_acc,
+            "per_noise_level": results,
+            "geometry_accuracy_correlation": correlation,
         }
 
 

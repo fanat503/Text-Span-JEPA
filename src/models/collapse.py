@@ -19,8 +19,8 @@
 import math
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class VarianceRegularization(nn.Module):
@@ -82,7 +82,7 @@ class TargetCentering(nn.Module):
     def __init__(self, dim=768, momentum=0.9):
         super().__init__()
         self.momentum = momentum
-        self.register_buffer('center', torch.zeros(1, 1, dim))
+        self.register_buffer("center", torch.zeros(1, 1, dim))
 
     @torch.no_grad()
     def update_center(self, target_representations):
@@ -156,108 +156,112 @@ class CollapseDiagnostics(nn.Module):
             # When both B=1 and T=1, each column has only 1 value → NaN
             _os = online_h.std(dim=(0, 1))
             _ts = target_h.std(dim=(0, 1))
-            metrics['online_std'] = _os.nan_to_num(0.0).mean().item()
-            metrics['target_std'] = _ts.nan_to_num(0.0).mean().item()
+            metrics["online_std"] = _os.nan_to_num(0.0).mean().item()
+            metrics["target_std"] = _ts.nan_to_num(0.0).mean().item()
         else:
-            metrics['online_std'] = 0.0
-            metrics['target_std'] = 0.0
+            metrics["online_std"] = 0.0
+            metrics["target_std"] = 0.0
 
         online_flat = online_h.reshape(-1, online_h.size(-1))
         target_flat = target_h.reshape(-1, target_h.size(-1))
 
         # --- Pairwise cosine (DINO / BYOL) ---
-        metrics['online_target_cosine'] = F.cosine_similarity(
-            online_flat, target_flat, dim=-1
-        ).mean().item()
-        metrics['online_target_mse'] = F.mse_loss(online_h, target_h).item()
+        metrics["online_target_cosine"] = (
+            F.cosine_similarity(online_flat, target_flat, dim=-1).mean().item()
+        )
+        metrics["online_target_mse"] = F.mse_loss(online_h, target_h).item()
 
         if online_flat.size(0) > 1:
-            metrics['online_pair_cosine'] = F.cosine_similarity(
-                online_flat[:-1], online_flat[1:], dim=-1
-            ).mean().item()
+            metrics["online_pair_cosine"] = (
+                F.cosine_similarity(online_flat[:-1], online_flat[1:], dim=-1).mean().item()
+            )
 
         # --- SVD-based rank metrics (NextLat) ---
-        metrics['effective_rank_online'] = max(self._effective_rank(online_h), 0.0)
-        metrics['effective_rank_target'] = max(self._effective_rank(target_h), 0.0)
-        metrics['participation_ratio_online'] = max(self._participation_ratio(online_h), 0.0)
-        metrics['participation_ratio_target'] = max(self._participation_ratio(target_h), 0.0)
-        metrics['condition_number_online'] = self._condition_number(online_h)
-        metrics['condition_number_target'] = self._condition_number(target_h)
-        metrics['numerical_rank_online'] = self._numerical_rank(online_h)
-        metrics['numerical_rank_target'] = self._numerical_rank(target_h)
-        metrics['coherence_online'] = self._coherence(online_h)
-        metrics['coherence_target'] = self._coherence(target_h)
+        metrics["effective_rank_online"] = max(self._effective_rank(online_h), 0.0)
+        metrics["effective_rank_target"] = max(self._effective_rank(target_h), 0.0)
+        metrics["participation_ratio_online"] = max(self._participation_ratio(online_h), 0.0)
+        metrics["participation_ratio_target"] = max(self._participation_ratio(target_h), 0.0)
+        metrics["condition_number_online"] = self._condition_number(online_h)
+        metrics["condition_number_target"] = self._condition_number(target_h)
+        metrics["numerical_rank_online"] = self._numerical_rank(online_h)
+        metrics["numerical_rank_target"] = self._numerical_rank(target_h)
+        metrics["coherence_online"] = self._coherence(online_h)
+        metrics["coherence_target"] = self._coherence(target_h)
 
         # --- Rank utilization (NextLat) ---
         D = online_h.size(-1)
         N = online_flat.size(0)
         max_rank = min(N, D)
-        metrics['rank_utilization_online'] = metrics['numerical_rank_online'] / max_rank if max_rank > 0 else 0.0
-        metrics['rank_utilization_target'] = metrics['numerical_rank_target'] / max_rank if max_rank > 0 else 0.0
+        metrics["rank_utilization_online"] = (
+            metrics["numerical_rank_online"] / max_rank if max_rank > 0 else 0.0
+        )
+        metrics["rank_utilization_target"] = (
+            metrics["numerical_rank_target"] / max_rank if max_rank > 0 else 0.0
+        )
 
         # --- Collapsed dimension ratio (I-JEPA / lang-jepa) ---
-        metrics['collapsed_dim_ratio_online'] = self._collapsed_dim_ratio(online_h)
-        metrics['collapsed_dim_ratio_target'] = self._collapsed_dim_ratio(target_h)
+        metrics["collapsed_dim_ratio_online"] = self._collapsed_dim_ratio(online_h)
+        metrics["collapsed_dim_ratio_target"] = self._collapsed_dim_ratio(target_h)
 
         # --- Singular value entropy (I-JEPA detailed version) ---
-        metrics['sv_entropy_online'] = self._singular_value_entropy(online_h)
-        metrics['sv_entropy_target'] = self._singular_value_entropy(target_h)
+        metrics["sv_entropy_online"] = self._singular_value_entropy(online_h)
+        metrics["sv_entropy_target"] = self._singular_value_entropy(target_h)
 
         # --- SVD sharpness (C-JEPA / BYOL) ---
-        metrics['svd_sharpness_online'] = self._svd_sharpness(online_h)
-        metrics['svd_sharpness_target'] = self._svd_sharpness(target_h)
+        metrics["svd_sharpness_online"] = self._svd_sharpness(online_h)
+        metrics["svd_sharpness_target"] = self._svd_sharpness(target_h)
 
         # --- Alpha norm (LeCun 2022: power-law decay of singular values) ---
-        metrics['alpha_norm_online'] = self._alpha_norm(online_h)
-        metrics['alpha_norm_target'] = self._alpha_norm(target_h)
+        metrics["alpha_norm_online"] = self._alpha_norm(online_h)
+        metrics["alpha_norm_target"] = self._alpha_norm(target_h)
 
         # --- Intrinsic dimensionality (Ansuini et al., NeurIPS 2019) ---
-        metrics['intrinsic_dim_online'] = self._intrinsic_dim_score(online_h)
-        metrics['intrinsic_dim_target'] = self._intrinsic_dim_score(target_h)
+        metrics["intrinsic_dim_online"] = self._intrinsic_dim_score(online_h)
+        metrics["intrinsic_dim_target"] = self._intrinsic_dim_score(target_h)
 
         # --- Mean pairwise cosine (DINOv2: intra-batch similarity) ---
-        metrics['mean_pairwise_cosine_online'] = self._mean_pairwise_cosine(online_flat)
-        metrics['mean_pairwise_cosine_target'] = self._mean_pairwise_cosine(target_flat)
+        metrics["mean_pairwise_cosine_online"] = self._mean_pairwise_cosine(online_flat)
+        metrics["mean_pairwise_cosine_target"] = self._mean_pairwise_cosine(target_flat)
 
         # --- Representation stability (I-JEPA: cosine between consecutive target updates) ---
         if prev_target_h is not None:
-            metrics['representation_stability'] = self._representation_stability(
+            metrics["representation_stability"] = self._representation_stability(
                 target_h, prev_target_h
             )
 
         # --- Cross-correlation redundancy (Barlow Twins) ---
-        metrics['cross_corr_redundancy'] = self._cross_corr_redundancy(online_flat, target_flat)
+        metrics["cross_corr_redundancy"] = self._cross_corr_redundancy(online_flat, target_flat)
 
         # --- CKA (Kornblith et al., 2019) ---
-        metrics['cka_linear'] = self._cka_linear(online_flat, target_flat)
+        metrics["cka_linear"] = self._cka_linear(online_flat, target_flat)
 
         # --- Centered kernel alignment — RBF kernel variant ---
-        metrics['cka_rbf'] = self._cka_rbf(online_flat, target_flat)
+        metrics["cka_rbf"] = self._cka_rbf(online_flat, target_flat)
 
         # --- Uniformity on hypersphere (Wang & Isola, ICLR 2022) ---
-        metrics['uniformity_online'] = self._uniformity(online_flat)
-        metrics['uniformity_target'] = self._uniformity(target_flat)
+        metrics["uniformity_online"] = self._uniformity(online_flat)
+        metrics["uniformity_target"] = self._uniformity(target_flat)
 
         # --- Feature covariance trace (DINO) ---
-        metrics['cov_trace_online'] = self._feature_covariance_trace(online_h)
-        metrics['cov_trace_target'] = self._feature_covariance_trace(target_h)
+        metrics["cov_trace_online"] = self._feature_covariance_trace(online_h)
+        metrics["cov_trace_target"] = self._feature_covariance_trace(target_h)
 
         # --- SVCCA (Raghu et al., ICLR 2017) ---
-        metrics['svcca_online_target'] = self._svcca(online_h, target_h)
+        metrics["svcca_online_target"] = self._svcca(online_h, target_h)
 
         # --- Alignment (Wang & Isola, ICLR 2022) ---
-        metrics['alignment'] = self._alignment(online_flat, target_flat)
+        metrics["alignment"] = self._alignment(online_flat, target_flat)
 
         # --- Eigenvalue spread ---
-        metrics['eigenvalue_spread_online'] = self._eigenvalue_spread(online_h)
-        metrics['eigenvalue_spread_target'] = self._eigenvalue_spread(target_h)
+        metrics["eigenvalue_spread_online"] = self._eigenvalue_spread(online_h)
+        metrics["eigenvalue_spread_target"] = self._eigenvalue_spread(target_h)
 
         # --- Subspace overlap ---
-        metrics['subspace_overlap'] = self._subspace_overlap(online_h, target_h)
+        metrics["subspace_overlap"] = self._subspace_overlap(online_h, target_h)
 
         # --- Spectral clustering coefficient ---
-        metrics['spectral_clustering_coeff_online'] = self._spectral_clustering_coeff(online_h)
-        metrics['spectral_clustering_coeff_target'] = self._spectral_clustering_coeff(target_h)
+        metrics["spectral_clustering_coeff_online"] = self._spectral_clustering_coeff(online_h)
+        metrics["spectral_clustering_coeff_target"] = self._spectral_clustering_coeff(target_h)
 
         return metrics
 
@@ -297,7 +301,7 @@ class CollapseDiagnostics(nn.Module):
         flat = x.reshape(-1, x.size(-1))
         try:
             S = torch.linalg.svdvals(flat)
-            sum_sq = (S ** 2).sum()
+            sum_sq = (S**2).sum()
             if sum_sq == 0 or not torch.isfinite(sum_sq):
                 return 0.0
             val = (S.sum() ** 2 / sum_sq).item()
@@ -314,12 +318,12 @@ class CollapseDiagnostics(nn.Module):
         try:
             S = torch.linalg.svdvals(flat)
             if S[-1] == 0 or not torch.isfinite(S[-1]):
-                return float('inf')
+                return float("inf")
             if S[0] == 0 or not torch.isfinite(S[0]):
-                return float('inf')
+                return float("inf")
             return (S[0] / S[-1]).item()
         except Exception:
-            return float('inf')
+            return float("inf")
 
     @staticmethod
     def _numerical_rank(x):
@@ -437,7 +441,7 @@ class CollapseDiagnostics(nn.Module):
         flat = x.reshape(-1, x.size(-1))
         try:
             S = torch.linalg.svdvals(flat)
-            sum_sq = (S ** 2).sum()
+            sum_sq = (S**2).sum()
             if sum_sq == 0 or not torch.isfinite(sum_sq):
                 return 1.0
             val = (S[0] ** 2 / sum_sq).item()
@@ -477,7 +481,7 @@ class CollapseDiagnostics(nn.Module):
             # Linear regression: log(S) = -alpha * log(i) + c
             log_i_centered = log_i - log_i.mean()
             log_S_centered = log_S - log_S.mean()
-            var_i = (log_i_centered ** 2).sum()
+            var_i = (log_i_centered**2).sum()
             if var_i == 0 or not torch.isfinite(var_i):
                 return 0.0
             alpha = -(log_i_centered * log_S_centered).sum() / var_i
@@ -524,7 +528,7 @@ class CollapseDiagnostics(nn.Module):
             # Compute pairwise distances (efficient)
             dists = torch.cdist(flat, flat, p=2)  # (N, N)
             # Set self-distances to inf
-            dists.fill_diagonal_(float('inf'))
+            dists.fill_diagonal_(float("inf"))
 
             # Get 1st and 2nd nearest neighbor distances
             sorted_dists, _ = dists.sort(dim=1)
@@ -699,7 +703,7 @@ class CollapseDiagnostics(nn.Module):
     def _rbf_kernel(x, sigma):
         """RBF (Gaussian) kernel matrix."""
         dists = torch.cdist(x, x, p=2)
-        return torch.exp(-0.5 * dists ** 2 / (sigma ** 2))
+        return torch.exp(-0.5 * dists**2 / (sigma**2))
 
     # ═══════════════════════════════════════════════════════════════
     #  Wang & Isola (ICLR 2022) — uniformity on hypersphere
@@ -803,18 +807,18 @@ class CollapseDiagnostics(nn.Module):
                 return 0.0
 
             # SVD, keep right singular vectors (V)
-            Ux, Sx, Vhx = torch.linalg.svd(x_flat, full_matrices=False)
-            Uy, Sy, Vhy = torch.linalg.svd(y_flat, full_matrices=False)
+            _Ux, Sx, Vhx = torch.linalg.svd(x_flat, full_matrices=False)
+            _Uy, Sy, Vhy = torch.linalg.svd(y_flat, full_matrices=False)
 
             Vx = Vhx.T  # (Dx, Dx) — right singular vectors
             Vy = Vhy.T  # (Dy, Dy)
 
             # Keep components explaining `threshold` variance
-            var_x = (Sx ** 2).cumsum(0) / (Sx ** 2).sum()
+            var_x = (Sx**2).cumsum(0) / (Sx**2).sum()
             kx = max((var_x < threshold).sum().item() + 1, 1)
             kx = min(kx, Dx, N)
 
-            var_y = (Sy ** 2).cumsum(0) / (Sy ** 2).sum()
+            var_y = (Sy**2).cumsum(0) / (Sy**2).sum()
             ky = max((var_y < threshold).sum().item() + 1, 1)
             ky = min(ky, Dy, N)
 
@@ -871,10 +875,10 @@ class CollapseDiagnostics(nn.Module):
         """
         try:
             if x.shape != y.shape:
-                return float('inf')
+                return float("inf")
             N = x.size(0)
             if N == 0:
-                return float('inf')
+                return float("inf")
             # Subsample for efficiency
             if N > 256:
                 idx = torch.randperm(N, device=x.device)[:256]
@@ -884,10 +888,10 @@ class CollapseDiagnostics(nn.Module):
             dists = (x - y).norm(dim=-1).pow(alpha)
             val = dists.mean().item()
             if not math.isfinite(val):
-                return float('inf')
+                return float("inf")
             return val
         except Exception:
-            return float('inf')
+            return float("inf")
 
     # ═══════════════════════════════════════════════════════════════
     #  Eigenvalue spread
@@ -903,7 +907,7 @@ class CollapseDiagnostics(nn.Module):
         try:
             flat = x.reshape(-1, x.size(-1)).float()
             centered = flat - flat.mean(dim=0)
-            N, D = centered.shape
+            N, _D = centered.shape
             if N <= 1:
                 return 0.0
             cov = (centered.T @ centered) / max(N - 1, 1)
@@ -953,7 +957,7 @@ class CollapseDiagnostics(nn.Module):
             # If subspaces are identical → overlap = 1
             # If orthogonal → overlap = 0
             overlap_matrix = Vx.T @ Vy  # (k, k)
-            overlap = (overlap_matrix ** 2).sum() / k
+            overlap = (overlap_matrix**2).sum() / k
 
             val = overlap.item()
             if not math.isfinite(val):
@@ -1054,7 +1058,7 @@ class CollapseDiagnostics(nn.Module):
             # Project predictor onto workspace
             PQ = P @ Q  # (..., k)
 
-            util = torch.norm(PQ, p='fro') / (torch.norm(P, p='fro') + 1e-8)
+            util = torch.norm(PQ, p="fro") / (torch.norm(P, p="fro") + 1e-8)
             result = util.item()
             return max(0.0, min(1.0, result))
         except Exception:
@@ -1087,35 +1091,46 @@ class CollapseDiagnostics(nn.Module):
             0.0 if any computation fails.
         """
         try:
+
             def _get(key, default=0.0, lo=0.0, hi=1.0):
                 v = metrics.get(key, default)
                 if not isinstance(v, (int, float)) or not math.isfinite(v):
                     v = default
                 return max(lo, min(hi, v))
 
-            anti_collapse = 1.0 - _get('collapsed_dim_ratio_online', 1.0)
-            spectral = _get('sv_entropy_online')
-            rank_util = _get('rank_utilization_online')
+            anti_collapse = 1.0 - _get("collapsed_dim_ratio_online", 1.0)
+            spectral = _get("sv_entropy_online")
+            rank_util = _get("rank_utilization_online")
             # alignment: lower is better, normalize to [0, 1]
-            align_raw = _get('alignment', default=10.0, lo=0.0, hi=100.0)
+            align_raw = _get("alignment", default=10.0, lo=0.0, hi=100.0)
             alignment = 1.0 / (1.0 + align_raw)
-            uniformity_raw = _get('uniformity_online', default=-10.0, lo=-100.0, hi=0.0)
+            uniformity_raw = _get("uniformity_online", default=-10.0, lo=-100.0, hi=0.0)
             uniformity = math.exp(max(uniformity_raw, -20.0))
-            cka = _get('cka_linear')
-            svcca = _get('svcca_online_target')
+            cka = _get("cka_linear")
+            svcca = _get("svcca_online_target")
             # alpha_norm: healthy is 0.5-3.0, normalize
-            alpha_raw = _get('alpha_norm_online', default=0.0, lo=0.0, hi=10.0)
+            alpha_raw = _get("alpha_norm_online", default=0.0, lo=0.0, hi=10.0)
             alpha_norm = math.exp(-0.5 * (alpha_raw - 1.5) ** 2)
             # workspace utilization: predictor uses JAWP workspace
-            ws_util = _get('workspace_utilization', default=0.5)
+            ws_util = _get("workspace_utilization", default=0.5)
             # workspace flatness: 1 - normalized sharpness (WSR)
             # Low sharpness = flat minimum = good generalization
-            ws_sharp_raw = _get('wsr_sharpness', default=0.0, lo=0.0, hi=10.0)
+            ws_sharp_raw = _get("wsr_sharpness", default=0.0, lo=0.0, hi=10.0)
             ws_flatness = 1.0 / (1.0 + ws_sharp_raw)
 
             weights = [0.16, 0.12, 0.12, 0.12, 0.08, 0.08, 0.08, 0.05, 0.10, 0.09]
-            components = [anti_collapse, spectral, rank_util, alignment,
-                          uniformity, cka, svcca, alpha_norm, ws_util, ws_flatness]
+            components = [
+                anti_collapse,
+                spectral,
+                rank_util,
+                alignment,
+                uniformity,
+                cka,
+                svcca,
+                alpha_norm,
+                ws_util,
+                ws_flatness,
+            ]
 
             # Adaptive weight reweighting (Reviewer R6 response):
             # Components near collapse (close to 0) get UP-weighted

@@ -6,7 +6,6 @@
 # and Turner et al. (2023) activation steering
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -74,9 +73,9 @@ def activation_patching(source_reps, target_reps, patch_mask):
 
 
 @torch.no_grad()
-def intervention_predictability_score(model, input_ids, direction,
-                                     probe_fn, scales=(-2, -1, 0, 1, 2),
-                                     layer_idx=-1, device='cpu'):
+def intervention_predictability_score(
+    model, input_ids, direction, probe_fn, scales=(-2, -1, 0, 1, 2), layer_idx=-1, device="cpu"
+):
     """Measure how predictable the effect of an intervention is.
 
     Key metric for mechanistic interpretability: if steering along
@@ -121,9 +120,9 @@ def intervention_predictability_score(model, input_ids, direction,
 
     if probes_t.std() == 0 or scales_t.std() == 0:
         return {
-            'predictability': 0.0,
-            'monotonicity': 0.0,
-            'probe_values': probe_values,
+            "predictability": 0.0,
+            "monotonicity": 0.0,
+            "probe_values": probe_values,
         }
 
     # Spearman rank correlation
@@ -144,16 +143,16 @@ def intervention_predictability_score(model, input_ids, direction,
         mono = max(signs.mean().item(), (1 - signs.mean()).item())
 
     return {
-        'predictability': abs(spearman),
-        'monotonicity': mono,
-        'probe_values': probe_values,
+        "predictability": abs(spearman),
+        "monotonicity": mono,
+        "probe_values": probe_values,
     }
 
 
 class CausalIntervention:
     """Collection of causal intervention experiments for comparing JEPA vs MLM."""
 
-    def __init__(self, jepa_model, baseline_model, device='cpu'):
+    def __init__(self, jepa_model, baseline_model, device="cpu"):
         self.jepa = jepa_model
         self.baseline = baseline_model
         self.device = device
@@ -189,26 +188,31 @@ class CausalIntervention:
             # JEPA ablation
             h_jepa_abl = direction_ablation(h_jepa.mean(dim=1), direction)
             jepa_probed = probe_fn(h_jepa_abl)
-            jepa_effect = (jepa_probed - jepa_baseline).abs().mean().item() if isinstance(
-                jepa_probed, torch.Tensor) else abs(jepa_probed - jepa_baseline)
+            jepa_effect = (
+                (jepa_probed - jepa_baseline).abs().mean().item()
+                if isinstance(jepa_probed, torch.Tensor)
+                else abs(jepa_probed - jepa_baseline)
+            )
 
             # Baseline ablation
             h_base_abl = direction_ablation(h_base.mean(dim=1), direction)
             base_probed = probe_fn(h_base_abl)
-            base_effect = (base_probed - base_baseline).abs().mean().item() if isinstance(
-                base_probed, torch.Tensor) else abs(base_probed - base_baseline)
+            base_effect = (
+                (base_probed - base_baseline).abs().mean().item()
+                if isinstance(base_probed, torch.Tensor)
+                else abs(base_probed - base_baseline)
+            )
 
             results[name] = {
-                'jepa_ablation_effect': jepa_effect,
-                'baseline_ablation_effect': base_effect,
-                'jepa_more_predictable': jepa_effect > base_effect,
+                "jepa_ablation_effect": jepa_effect,
+                "baseline_ablation_effect": base_effect,
+                "jepa_more_predictable": jepa_effect > base_effect,
             }
 
         return results
 
     @torch.no_grad()
-    def steering_comparison(self, input_ids, direction, probe_fn,
-                            scales=(-2, -1, 0, 1, 2)):
+    def steering_comparison(self, input_ids, direction, probe_fn, scales=(-2, -1, 0, 1, 2)):
         """Compare steering predictability between JEPA and baseline.
 
         Returns:
@@ -217,15 +221,18 @@ class CausalIntervention:
         direction = direction.to(self.device)
 
         jepa_result = intervention_predictability_score(
-            self.jepa, input_ids, direction, probe_fn, scales, device=self.device)
+            self.jepa, input_ids, direction, probe_fn, scales, device=self.device
+        )
 
         baseline_result = intervention_predictability_score(
-            self.baseline, input_ids, direction, probe_fn, scales, device=self.device)
+            self.baseline, input_ids, direction, probe_fn, scales, device=self.device
+        )
 
         return {
-            'jepa_predictability': jepa_result['predictability'],
-            'jepa_monotonicity': jepa_result['monotonicity'],
-            'baseline_predictability': baseline_result['predictability'],
-            'baseline_monotonicity': baseline_result['monotonicity'],
-            'jepa_more_predictable': jepa_result['predictability'] > baseline_result['predictability'],
+            "jepa_predictability": jepa_result["predictability"],
+            "jepa_monotonicity": jepa_result["monotonicity"],
+            "baseline_predictability": baseline_result["predictability"],
+            "baseline_monotonicity": baseline_result["monotonicity"],
+            "jepa_more_predictable": jepa_result["predictability"]
+            > baseline_result["predictability"],
         }

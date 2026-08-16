@@ -20,9 +20,10 @@
 # - Representation entropy / information compression
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class MINEEstimator(nn.Module):
@@ -155,8 +156,9 @@ class ConditionalMIEstimator:
     """
 
     @staticmethod
-    def compute(representations, target_features, conditioning_features,
-                method='infonce', n_steps=100):
+    def compute(
+        representations, target_features, conditioning_features, method="infonce", n_steps=100
+    ):
         """Estimate MI(h; target | condition).
 
         Args:
@@ -169,13 +171,13 @@ class ConditionalMIEstimator:
         Returns:
             dict with MI estimates
         """
-        N, D = representations.shape
+        _N, D = representations.shape
         K = target_features.shape[1]
         M = conditioning_features.shape[1]
 
         # MI(h; target, condition) using InfoNCE
         combined = torch.cat([target_features, conditioning_features], dim=-1)
-        if method == 'infonce':
+        if method == "infonce":
             mi_joint = InfoNCEEstimator.compute(representations, combined)
             mi_condition = InfoNCEEstimator.compute(representations, conditioning_features)
         else:
@@ -188,18 +190,19 @@ class ConditionalMIEstimator:
         mi_conditional = mi_joint - mi_condition
 
         # Also compute MI(h; target) without conditioning
-        if method == 'infonce':
+        if method == "infonce":
             mi_target = InfoNCEEstimator.compute(representations, target_features)
         else:
             mine_target = MINEEstimator(D, K)
             mi_target = mine_target.compute_mi(representations, target_features, n_steps)
 
         return {
-            'mi_target': mi_target,
-            'mi_condition': mi_condition,
-            'mi_joint': mi_joint,
-            'mi_conditional': mi_conditional,  # THE KEY METRIC
-            'information_gain': mi_conditional / max(mi_target, 1e-10),  # Fraction of abstract info beyond surface
+            "mi_target": mi_target,
+            "mi_condition": mi_condition,
+            "mi_joint": mi_joint,
+            "mi_conditional": mi_conditional,  # THE KEY METRIC
+            "information_gain": mi_conditional
+            / max(mi_target, 1e-10),  # Fraction of abstract info beyond surface
         }
 
 
@@ -329,7 +332,7 @@ class RepresentationCompression:
         rep_entropy = RepresentationCompression.entropy_estimate(representations)
         # Random baseline: entropy of isotropic Gaussian in D dims
         # H(N(0,I)) = 0.5 * D * (1 + log(2π))
-        D = representations.size(-1) if representations.dim() <= 2 else representations.size(-1)
+        representations.size(-1) if representations.dim() <= 2 else representations.size(-1)
         baseline = 0.5 * original_dim * (1 + math.log(2 * math.pi))
 
         if baseline == 0:
@@ -349,8 +352,7 @@ class InformationPlane:
     """
 
     @staticmethod
-    def compute(representations, input_features, task_labels,
-                method='infonce'):
+    def compute(representations, input_features, task_labels, method="infonce"):
         """Compute information plane coordinates.
 
         Args:
@@ -362,7 +364,7 @@ class InformationPlane:
         Returns:
             dict with I(h; X), I(h; Y), and IB gap
         """
-        if method == 'infonce':
+        if method == "infonce":
             mi_input = InfoNCEEstimator.compute(representations, input_features.float())
             mi_task = InfoNCEEstimator.compute(representations, task_labels.float())
         else:
@@ -373,15 +375,14 @@ class InformationPlane:
             mi_task = mine_y.compute_mi(representations, task_labels.float(), n_steps=200)
 
         return {
-            'mi_input': mi_input,       # I(h; X) — should be LOW for JEPA
-            'mi_task': mi_task,          # I(h; Y) — should be HIGH for JEPA
-            'ib_gap': mi_task - mi_input,  # Information bottleneck gap — should be HIGH for JEPA
-            'compression_efficiency': mi_task / max(mi_input, 1e-10),  # MI per bit of input info
+            "mi_input": mi_input,  # I(h; X) — should be LOW for JEPA
+            "mi_task": mi_task,  # I(h; Y) — should be HIGH for JEPA
+            "ib_gap": mi_task - mi_input,  # Information bottleneck gap — should be HIGH for JEPA
+            "compression_efficiency": mi_task / max(mi_input, 1e-10),  # MI per bit of input info
         }
 
     @staticmethod
-    def compare(jepa_reps, baseline_reps, input_features, task_labels,
-                method='infonce'):
+    def compare(jepa_reps, baseline_reps, input_features, task_labels, method="infonce"):
         """Compare information plane between JEPA and baseline.
 
         THE KEY COMPARISON: if JEPA has higher IB gap, it means JEPA
@@ -391,10 +392,10 @@ class InformationPlane:
         baseline_ip = InformationPlane.compute(baseline_reps, input_features, task_labels, method)
 
         return {
-            'jepa': jepa_ip,
-            'baseline': baseline_ip,
-            'jepa_more_compressed': jepa_ip['mi_input'] < baseline_ip['mi_input'],
-            'jepa_preserves_more_task_info': jepa_ip['mi_task'] > baseline_ip['mi_task'],
-            'jepa_higher_ib_gap': jepa_ip['ib_gap'] > baseline_ip['ib_gap'],
-            'ib_gap_diff': jepa_ip['ib_gap'] - baseline_ip['ib_gap'],
+            "jepa": jepa_ip,
+            "baseline": baseline_ip,
+            "jepa_more_compressed": jepa_ip["mi_input"] < baseline_ip["mi_input"],
+            "jepa_preserves_more_task_info": jepa_ip["mi_task"] > baseline_ip["mi_task"],
+            "jepa_higher_ib_gap": jepa_ip["ib_gap"] > baseline_ip["ib_gap"],
+            "ib_gap_diff": jepa_ip["ib_gap"] - baseline_ip["ib_gap"],
         }

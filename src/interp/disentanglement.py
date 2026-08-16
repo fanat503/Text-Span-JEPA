@@ -8,9 +8,9 @@
 # SAP: Kumar et al. (2018) "Variational Inference for Monte Carlo Objectives"
 # Modularity: Ridgeway & Mozer (2018) "Learning Deep Disentangled Embeddings"
 
-import torch
-import torch.nn.functional as F
 import math
+
+import torch
 
 
 class DCIMetrics:
@@ -36,7 +36,7 @@ class DCIMetrics:
             dict with 'disentanglement', 'completeness', 'informativeness'
         """
         try:
-            N, D = representations.shape
+            _N, D = representations.shape
             K = factors.shape[1] if factors.dim() > 1 else 1
             if factors.dim() == 1:
                 factors = factors.unsqueeze(1)
@@ -77,7 +77,9 @@ class DCIMetrics:
                 if col_sums[0, j] > 1e-10:
                     q = Q[:, j]
                     q = q[q > 1e-10]
-                    compl_per_factor[j] = 1.0 + (q * torch.log(q + 1e-10)).sum() / math.log(D + 1e-10)
+                    compl_per_factor[j] = 1.0 + (q * torch.log(q + 1e-10)).sum() / math.log(
+                        D + 1e-10
+                    )
                 else:
                     compl_per_factor[j] = 0.0
 
@@ -89,12 +91,12 @@ class DCIMetrics:
             informativeness = R.max(dim=0).values.mean().item()
 
             return {
-                'disentanglement': max(min(disentanglement, 1.0), 0.0),
-                'completeness': max(min(completeness, 1.0), 0.0),
-                'informativeness': max(min(informativeness, 1.0), 0.0),
+                "disentanglement": max(min(disentanglement, 1.0), 0.0),
+                "completeness": max(min(completeness, 1.0), 0.0),
+                "informativeness": max(min(informativeness, 1.0), 0.0),
             }
         except Exception:
-            return {'disentanglement': 0.0, 'completeness': 0.0, 'informativeness': 0.0}
+            return {"disentanglement": 0.0, "completeness": 0.0, "informativeness": 0.0}
 
 
 class SAPScore:
@@ -116,7 +118,7 @@ class SAPScore:
             float: SAP score
         """
         try:
-            N, D = representations.shape
+            _N, D = representations.shape
             K = factors.shape[1] if factors.dim() > 1 else 1
             if factors.dim() == 1:
                 factors = factors.unsqueeze(1)
@@ -124,9 +126,9 @@ class SAPScore:
             score_matrix = torch.zeros(D, K)
             for i in range(D):
                 for j in range(K):
-                    score_matrix[i, j] = abs(_pearson_correlation(
-                        representations[:, i], factors[:, j]
-                    ))
+                    score_matrix[i, j] = abs(
+                        _pearson_correlation(representations[:, i], factors[:, j])
+                    )
 
             # For each factor, take top-2 most predictive dimensions
             sap = 0.0
@@ -161,7 +163,7 @@ class MIGScore:
             float: MIG score
         """
         try:
-            N, D = representations.shape
+            _N, D = representations.shape
             K = factors.shape[1] if factors.dim() > 1 else 1
             if factors.dim() == 1:
                 factors = factors.unsqueeze(1)
@@ -212,7 +214,7 @@ class ModularityScore:
             float: modularity score in [0, 1]
         """
         try:
-            N, D = representations.shape
+            _N, D = representations.shape
             K = factors.shape[1] if factors.dim() > 1 else 1
             if factors.dim() == 1:
                 factors = factors.unsqueeze(1)
@@ -221,9 +223,7 @@ class ModularityScore:
             R = torch.zeros(D, K)
             for i in range(D):
                 for j in range(K):
-                    R[i, j] = abs(_pearson_correlation(
-                        representations[:, i], factors[:, j]
-                    ))
+                    R[i, j] = abs(_pearson_correlation(representations[:, i], factors[:, j]))
 
             # Per-dimension modularity
             mod_per_dim = torch.zeros(D)
@@ -236,7 +236,7 @@ class ModularityScore:
                 # Deviation from perfect one-hot (one factor = 1, rest = 0)
                 # mod = 1 - (sum(r^2) / (sum(r))^2 - 1/K) / (1 - 1/K)
                 p = r / r_sum
-                p_sq_sum = (p ** 2).sum()
+                p_sq_sum = (p**2).sum()
                 mod = 1.0 - (p_sq_sum - 1.0 / K) / (1.0 - 1.0 / K + 1e-10)
                 mod_per_dim[i] = max(min(mod, 1.0), 0.0)
 
@@ -257,15 +257,16 @@ def compute_all_disentanglement_metrics(representations, factors):
     """
     results = {}
     results.update(DCIMetrics.compute(representations, factors))
-    results['sap'] = SAPScore.compute(representations, factors)
-    results['mig'] = MIGScore.compute(representations, factors)
-    results['modularity'] = ModularityScore.compute(representations, factors)
+    results["sap"] = SAPScore.compute(representations, factors)
+    results["mig"] = MIGScore.compute(representations, factors)
+    results["modularity"] = ModularityScore.compute(representations, factors)
     return results
 
 
 # ═══════════════════════════════════════════════════════════════
 # Helper functions
 # ═══════════════════════════════════════════════════════════════
+
 
 def _pearson_correlation(x, y):
     """Pearson correlation coefficient between two vectors."""
@@ -275,7 +276,7 @@ def _pearson_correlation(x, y):
     y_mean = y.mean()
     x_centered = x - x_mean
     y_centered = y - y_mean
-    denom = (x_centered.norm() * y_centered.norm())
+    denom = x_centered.norm() * y_centered.norm()
     if denom < 1e-10:
         return torch.tensor(0.0)
     return (x_centered @ y_centered) / denom

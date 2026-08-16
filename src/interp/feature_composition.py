@@ -12,9 +12,9 @@
 # Inspired by word2vec analogies (Mikolov et al., 2013) applied to
 # SAE features (Bricken et al., 2023).
 
+
 import torch
 import torch.nn.functional as F
-import math
 
 
 class FeatureCompositionScore:
@@ -31,7 +31,7 @@ class FeatureCompositionScore:
     for the inductive bias hypothesis.
     """
 
-    def __init__(self, sae_model, encoder_model, device='cpu'):
+    def __init__(self, sae_model, encoder_model, device="cpu"):
         """
         Args:
             sae_model: trained SparseAutoencoder
@@ -43,9 +43,9 @@ class FeatureCompositionScore:
         self.device = device
 
     @torch.no_grad()
-    def feature_arithmetic_test(self, input_ids_a, input_ids_b,
-                                input_ids_ab, sae_feature_a_idx,
-                                sae_feature_b_idx):
+    def feature_arithmetic_test(
+        self, input_ids_a, input_ids_b, input_ids_ab, sae_feature_a_idx, sae_feature_b_idx
+    ):
         """Test feature arithmetic: A + B ≈ AB.
 
         Args:
@@ -95,12 +95,12 @@ class FeatureCompositionScore:
         composition_advantage = cos_sim - best_baseline
 
         return {
-            'cosine_feature_space': cos_sim,
-            'cosine_repr_space': cos_sim_repr,
-            'cosine_a_only': cos_a_only,
-            'cosine_b_only': cos_b_only,
-            'composition_advantage': composition_advantage,
-            'composition_works': composition_advantage > 0,
+            "cosine_feature_space": cos_sim,
+            "cosine_repr_space": cos_sim_repr,
+            "cosine_a_only": cos_a_only,
+            "cosine_b_only": cos_b_only,
+            "composition_advantage": composition_advantage,
+            "composition_works": composition_advantage > 0,
         }
 
     @torch.no_grad()
@@ -123,10 +123,10 @@ class FeatureCompositionScore:
         """
         results = []
         for pair in test_pairs:
-            a_reps = pair['a_reps'].to(self.device)
-            b_reps = pair['b_reps'].to(self.device)
-            ab_reps = pair['ab_reps'].to(self.device)
-            neither_reps = pair['neither_reps'].to(self.device)
+            a_reps = pair["a_reps"].to(self.device)
+            b_reps = pair["b_reps"].to(self.device)
+            ab_reps = pair["ab_reps"].to(self.device)
+            neither_reps = pair["neither_reps"].to(self.device)
 
             # Find best SAE features for A and B
             feature_a_idx = self._find_discriminating_feature(
@@ -152,14 +152,14 @@ class FeatureCompositionScore:
             results.append(cos_sim)
 
         if not results:
-            return {'mean_composition_score': 0.0, 'n_pairs': 0}
+            return {"mean_composition_score": 0.0, "n_pairs": 0}
 
         return {
-            'mean_composition_score': sum(results) / len(results),
-            'n_pairs': len(results),
-            'max_score': max(results),
-            'min_score': min(results),
-            'fraction_positive': sum(1 for r in results if r > 0) / len(results),
+            "mean_composition_score": sum(results) / len(results),
+            "n_pairs": len(results),
+            "max_score": max(results),
+            "min_score": min(results),
+            "fraction_positive": sum(1 for r in results if r > 0) / len(results),
         }
 
     def _find_discriminating_feature(self, pos_reps, neg_reps, n_search=10):
@@ -181,8 +181,9 @@ class FeatureCompositionScore:
         return top_idx.item()
 
     @staticmethod
-    def compare_models(jepa_sae, baseline_sae, jepa_encoder, baseline_encoder,
-                       test_pairs, device='cpu'):
+    def compare_models(
+        jepa_sae, baseline_sae, jepa_encoder, baseline_encoder, test_pairs, device="cpu"
+    ):
         """Compare composition scores between JEPA and baseline.
 
         Args:
@@ -203,14 +204,13 @@ class FeatureCompositionScore:
         baseline_result = baseline_scorer.systematic_composition_test(test_pairs)
 
         return {
-            'jepa_composition_score': jepa_result['mean_composition_score'],
-            'baseline_composition_score': baseline_result['mean_composition_score'],
-            'jepa_more_compositional': (
-                jepa_result['mean_composition_score'] >
-                baseline_result['mean_composition_score']
+            "jepa_composition_score": jepa_result["mean_composition_score"],
+            "baseline_composition_score": baseline_result["mean_composition_score"],
+            "jepa_more_compositional": (
+                jepa_result["mean_composition_score"] > baseline_result["mean_composition_score"]
             ),
-            'jepa_details': jepa_result,
-            'baseline_details': baseline_result,
+            "jepa_details": jepa_result,
+            "baseline_details": baseline_result,
         }
 
 
@@ -272,18 +272,18 @@ class FeatureInterferenceScore:
                 interference_scores.append(interference)
 
             if not interference_scores:
-                return {'mean_interference': 0.0, 'max_interference': 0.0}
+                return {"mean_interference": 0.0, "max_interference": 0.0}
 
             return {
-                'mean_interference': sum(interference_scores) / len(interference_scores),
-                'max_interference': max(interference_scores),
-                'min_interference': min(interference_scores),
-                'n_features_tested': len(interference_scores),
+                "mean_interference": sum(interference_scores) / len(interference_scores),
+                "max_interference": max(interference_scores),
+                "min_interference": min(interference_scores),
+                "n_features_tested": len(interference_scores),
             }
         except Exception:
             return {
-                'mean_interference': float('inf'),
-                'max_interference': float('inf'),
-                'min_interference': 0.0,
-                'n_features_tested': 0,
+                "mean_interference": float("inf"),
+                "max_interference": float("inf"),
+                "min_interference": 0.0,
+                "n_features_tested": 0,
             }

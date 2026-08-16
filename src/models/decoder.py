@@ -4,9 +4,8 @@
 # Regression head architecture from data2vec (Baevski et al., ICML 2022):
 #   Linear → GELU → Linear (same pattern as data2vec_text.py head_layers=2)
 
-import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class TiedTokenDecoder(nn.Module):

@@ -3,16 +3,17 @@
 # Tests for PCR: Predictive Cascade Refinement (novel mechanism #8)
 
 import math
+
 import pytest
 import torch
 import torch.nn.functional as F
 
-from src.models.pcr import PredictiveCascadeRefinement, RefinementBlock
-
+from src.models.pcr import PredictiveCascadeRefinement
 
 # ═══════════════════════════════════════════════════════════════════
 #  Core functionality tests
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestPCRCore:
     """Core PCR module tests."""
@@ -41,15 +42,15 @@ class TestPCRCore:
         z_target = torch.randn(B, N, D)
         z_refined, info = pcr(z_pred, z_target, step=2000)  # past warmup
         assert z_refined.shape == (B, N, D)
-        assert 'pcr_improvement' in info
-        assert 'pcr_n_levels' in info
-        assert info['pcr_n_levels'] == 2
+        assert "pcr_improvement" in info
+        assert "pcr_n_levels" in info
+        assert info["pcr_n_levels"] == 2
 
     def test_forward_2d_input(self):
         pcr = PredictiveCascadeRefinement(embed_dim=64, n_levels=2, level_dims=[16, 8])
         z_pred = torch.randn(10, 64)
         z_target = torch.randn(10, 64)
-        z_refined, info = pcr(z_pred, z_target, step=2000)
+        z_refined, _info = pcr(z_pred, z_target, step=2000)
         assert z_refined.shape == (10, 64)
 
     def test_warmup_zero_refinement(self):
@@ -57,7 +58,7 @@ class TestPCRCore:
         pcr = PredictiveCascadeRefinement(embed_dim=64, n_levels=2, level_dims=[16, 8])
         z_pred = torch.randn(4, 64)
         z_target = torch.randn(4, 64)
-        z_refined, info = pcr(z_pred, z_target, step=0)  # before warmup
+        z_refined, _info = pcr(z_pred, z_target, step=0)  # before warmup
         # During warmup, refinement should be zero
         assert torch.allclose(z_refined, z_pred, atol=1e-5)
 
@@ -68,13 +69,13 @@ class TestPCRCore:
         z_target = torch.randn(4, 64)
 
         # Before warmup
-        z0, _ = pcr(z_pred, z_target, step=0)
+        _z0, _ = pcr(z_pred, z_target, step=0)
         # During warmup
-        z_half, info_half = pcr(z_pred, z_target, step=1500)
+        _z_half, info_half = pcr(z_pred, z_target, step=1500)
         # After warmup
-        z_full, info_full = pcr(z_pred, z_target, step=5000)
+        _z_full, info_full = pcr(z_pred, z_target, step=5000)
 
-        assert info_half['pcr_warmup_factor'] < info_full['pcr_warmup_factor']
+        assert info_half["pcr_warmup_factor"] < info_full["pcr_warmup_factor"]
 
     def test_target_detached(self):
         """z_target should NOT receive gradients."""
@@ -105,12 +106,14 @@ class TestPCRCore:
 #  Stiefel manifold tests
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestPCRStiefel:
     """Stiefel manifold constraint tests for PCR projection Q."""
 
     def test_identity_init_orthonormal(self):
-        pcr = PredictiveCascadeRefinement(embed_dim=64, n_levels=2, level_dims=[16, 8],
-                                           init='identity')
+        pcr = PredictiveCascadeRefinement(
+            embed_dim=64, n_levels=2, level_dims=[16, 8], init="identity"
+        )
         Q = pcr.workspace_Q.data
         gram = Q.T @ Q
         # Should be close to identity (first 24 columns of 64x64 identity)
@@ -118,8 +121,9 @@ class TestPCRStiefel:
         assert torch.allclose(gram, expected, atol=1e-5)
 
     def test_random_init_orthonormal(self):
-        pcr = PredictiveCascadeRefinement(embed_dim=64, n_levels=2, level_dims=[16, 8],
-                                           init='random')
+        pcr = PredictiveCascadeRefinement(
+            embed_dim=64, n_levels=2, level_dims=[16, 8], init="random"
+        )
         Q = pcr.workspace_Q.data
         gram = Q.T @ Q
         expected = torch.eye(24)
@@ -160,6 +164,7 @@ class TestPCRStiefel:
 #  Theorem tests — Cascade Capacity
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestPCRCascadeCapacityTheorem:
     """Tests for the Cascade Capacity theorem.
 
@@ -177,7 +182,7 @@ class TestPCRCascadeCapacityTheorem:
         pcr = PredictiveCascadeRefinement(embed_dim=64, n_levels=2, level_dims=[16, 8])
         z_pred = torch.randn(32, 64)
         z_target = torch.randn(32, 64)
-        bound, info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
+        bound, _info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
         assert bound >= 0
 
     def test_capacity_bound_positive_for_imperfect_prediction(self):
@@ -186,7 +191,7 @@ class TestPCRCascadeCapacityTheorem:
         # z_pred far from z_target → large residual → positive bound
         z_pred = torch.randn(64, 64)
         z_target = z_pred + torch.randn(64, 64) * 2.0  # large residual
-        bound, info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
+        bound, _info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
         assert bound > 0
 
     def test_capacity_bound_zero_for_perfect_prediction(self):
@@ -194,7 +199,7 @@ class TestPCRCascadeCapacityTheorem:
         pcr = PredictiveCascadeRefinement(embed_dim=64, n_levels=2, level_dims=[16, 8])
         z_pred = torch.randn(32, 64)
         z_target = z_pred.clone()  # perfect prediction
-        bound, info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
+        bound, _info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
         assert bound < 0.1  # should be very small
 
     def test_more_levels_higher_bound(self):
@@ -217,13 +222,14 @@ class TestPCRCascadeCapacityTheorem:
         z_pred = torch.randn(64, 64)
         z_target = z_pred + torch.randn(64, 64)
         _, info = pcr.compute_cascade_capacity_bound(z_pred, z_target)
-        for lb in info['per_level_bounds']:
+        for lb in info["per_level_bounds"]:
             assert lb >= 0
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  Orthogonal subspace tests
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TestPCROrthogonalSubspaces:
     """Test that PCR subspaces are indeed orthogonal."""
@@ -286,6 +292,7 @@ class TestPCROrthogonalSubspaces:
 #  Information flow tests
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestPCRInformationFlow:
     """Test that PCR improves predictions (information flow)."""
 
@@ -308,7 +315,7 @@ class TestPCRInformationFlow:
         with torch.no_grad():
             z_pred = torch.randn(32, 64)
             z_target = z_pred + torch.randn(32, 64) * 0.5
-            z_refined, info = pcr(z_pred, z_target, step=5000)
+            z_refined, _info = pcr(z_pred, z_target, step=5000)
 
             initial_res = (z_target - z_pred).norm().item()
             final_res = (z_target - z_refined).norm().item()
@@ -322,18 +329,20 @@ class TestPCRInformationFlow:
         z_pred = torch.randn(16, 64)
         z_target = z_pred + torch.randn(16, 64)
         _, info = pcr(z_pred, z_target, step=2000)
-        assert info['pcr_improvement'] >= 0
+        assert info["pcr_improvement"] >= 0
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  Integration with JEPA model
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestPCRIntegration:
     """Integration tests with TextSpanJEPA model."""
 
     def test_config_with_pcr(self):
         from src.models.jepa import TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
             embed_dim=128,
             num_heads=4,
@@ -351,6 +360,7 @@ class TestPCRIntegration:
 
     def test_config_validation_pcr_dims_exceed_embed(self):
         from src.models.jepa import TextSpanJEPAConfig
+
         with pytest.raises(ValueError, match="sum\\(pcr_level_dims\\)"):
             config = TextSpanJEPAConfig(
                 embed_dim=64,
@@ -362,6 +372,7 @@ class TestPCRIntegration:
 
     def test_model_with_pcr(self):
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
             embed_dim=128,
             num_heads=4,
@@ -380,6 +391,7 @@ class TestPCRIntegration:
 
     def test_model_without_pcr(self):
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
             embed_dim=128,
             num_heads=4,
@@ -396,6 +408,7 @@ class TestPCRIntegration:
     def test_loss_computation_with_pcr(self):
         """Full loss computation with PCR enabled."""
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
             embed_dim=128,
             num_heads=4,
@@ -415,7 +428,7 @@ class TestPCRIntegration:
         mask = torch.zeros(B, T, dtype=torch.long)
         mask[:, 4:8] = 1
 
-        total_loss, loss_dict, diag_dict = model.compute_loss_with_targets(
+        total_loss, _loss_dict, _diag_dict = model.compute_loss_with_targets(
             masked_ids, original_ids, mask, current_step=2000, total_steps=10000
         )
         assert total_loss.item() >= 0
@@ -424,9 +437,10 @@ class TestPCRIntegration:
 
     def test_checkpoint_pcr_roundtrip(self):
         """PCR state should survive checkpoint save/load."""
-        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
-        from src.train import save_checkpoint, load_checkpoint
         import tempfile
+
+        from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+        from src.train import load_checkpoint, save_checkpoint
 
         config = TextSpanJEPAConfig(
             embed_dim=64,
@@ -448,10 +462,9 @@ class TestPCRIntegration:
             model.pcr.workspace_Q.add_(torch.randn_like(model.pcr.workspace_Q) * 0.01)
         original_Q = model.pcr.workspace_Q.data.clone()
 
-        with tempfile.NamedTemporaryFile(suffix='.pth') as f:
-            save_checkpoint(f.name, model, optimizer, None, 0, 0, 0, 0,
-                          model_name='text_span_jepa')
-            load_checkpoint(f.name, model, optimizer, None, model_name='text_span_jepa')
+        with tempfile.NamedTemporaryFile(suffix=".pth") as f:
+            save_checkpoint(f.name, model, optimizer, None, 0, 0, 0, 0, model_name="text_span_jepa")
+            load_checkpoint(f.name, model, optimizer, None, model_name="text_span_jepa")
 
         assert torch.allclose(model.pcr.workspace_Q.data, original_Q, atol=1e-5)
 
@@ -460,19 +473,20 @@ class TestPCRIntegration:
 #  Config tests
 # ═══════════════════════════════════════════════════════════════════
 
+
 class TestPCRConfig:
     """Config validation tests for PCR."""
 
     def test_pcr_n_levels_positive(self):
         from src.models.jepa import TextSpanJEPAConfig
+
         with pytest.raises(ValueError):
-            config = TextSpanJEPAConfig(
-                embed_dim=64, num_heads=4, use_pcr=True, pcr_n_levels=0
-            )
+            config = TextSpanJEPAConfig(embed_dim=64, num_heads=4, use_pcr=True, pcr_n_levels=0)
             config.validate()
 
     def test_pcr_warmup_nonnegative(self):
         from src.models.jepa import TextSpanJEPAConfig
+
         with pytest.raises(ValueError):
             config = TextSpanJEPAConfig(
                 embed_dim=64, num_heads=4, use_pcr=True, pcr_warmup_steps=-1
@@ -482,8 +496,7 @@ class TestPCRConfig:
     def test_pcr_disabled_skips_validation(self):
         """When use_pcr=False, PCR config should not be validated."""
         from src.models.jepa import TextSpanJEPAConfig
-        config = TextSpanJEPAConfig(
-            embed_dim=64, num_heads=4, use_pcr=False, pcr_n_levels=0
-        )
+
+        config = TextSpanJEPAConfig(embed_dim=64, num_heads=4, use_pcr=False, pcr_n_levels=0)
         # Should not raise despite pcr_n_levels=0
         assert config.validate() is True

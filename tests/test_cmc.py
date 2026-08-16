@@ -2,11 +2,13 @@
 # Licensed under the Apache License, Version 2.0
 # Tests for CMC (Cross-Mask Consistency) — mechanism #11
 
-import pytest
-import torch
 import math
 import sys
-sys.path.insert(0, '.')
+
+import pytest
+import torch
+
+sys.path.insert(0, ".")
 
 from src.models.cmc import CrossMaskConsistency
 
@@ -26,7 +28,7 @@ class TestCMCCore:
         z2 = torch.randn(self.B, self.T, self.D)
         overlap = torch.zeros(self.B, self.T, dtype=torch.long)
         overlap[:, 8:16] = 1
-        loss, info = self.cmc(z1, z2, overlap)
+        loss, _info = self.cmc(z1, z2, overlap)
         assert loss.dim() == 0, f"Loss should be scalar, got shape {loss.shape}"
         assert loss.dtype == torch.float32
 
@@ -36,7 +38,7 @@ class TestCMCCore:
         z2 = torch.randn(self.B, self.T, self.D)
         overlap = torch.zeros(self.B, self.T, dtype=torch.long)
         overlap[:, 5:15] = 1
-        loss, info = self.cmc(z1, z2, overlap)
+        loss, _info = self.cmc(z1, z2, overlap)
         assert loss.item() >= -1e-6, f"Loss should be non-negative, got {loss.item()}"
 
     def test_loss_zero_for_identical_predictions(self):
@@ -44,7 +46,7 @@ class TestCMCCore:
         z1 = torch.randn(self.B, self.T, self.D)
         overlap = torch.zeros(self.B, self.T, dtype=torch.long)
         overlap[:, 8:16] = 1
-        loss, info = self.cmc(z1, z1, overlap)
+        loss, _info = self.cmc(z1, z1, overlap)
         assert loss.item() < 1e-6, f"Identical predictions should give ~0 loss, got {loss.item()}"
 
     def test_loss_zero_for_no_overlap(self):
@@ -55,7 +57,7 @@ class TestCMCCore:
         overlap = torch.zeros(self.B, self.T, dtype=torch.long)
         loss, info = self.cmc(z1, z2, overlap)
         assert loss.item() == 0.0
-        assert info['cmc_skipped'] is True
+        assert info["cmc_skipped"] is True
 
     def test_loss_positive_for_different_predictions(self):
         """CMC loss > 0 when predictions differ at overlap."""
@@ -63,8 +65,8 @@ class TestCMCCore:
         z2 = z1 + 1.0  # offset by 1 in every dimension
         overlap = torch.zeros(self.B, self.T, dtype=torch.long)
         overlap[:, 8:16] = 1
-        loss, info = self.cmc(z1, z2, overlap)
-        assert loss.item() > 0, f"Different predictions should give >0 loss"
+        loss, _info = self.cmc(z1, z2, overlap)
+        assert loss.item() > 0, "Different predictions should give >0 loss"
 
     def test_loss_invariant_to_non_overlap_changes(self):
         """Changing predictions outside overlap doesn't affect loss."""
@@ -80,8 +82,9 @@ class TestCMCCore:
         z2_modified[:, :8, :] = 999.0  # change non-overlap positions
         loss2, _ = self.cmc(z1, z2_modified, overlap)
 
-        assert abs(loss1.item() - loss2.item()) < 1e-5, \
-            f"Non-overlap changes shouldn't affect loss: {loss1.item()} vs {loss2.item()}"
+        assert (
+            abs(loss1.item() - loss2.item()) < 1e-5
+        ), f"Non-overlap changes shouldn't affect loss: {loss1.item()} vs {loss2.item()}"
 
     def test_stop_grad_primary(self):
         """With stop_grad_primary=True, only secondary gets gradients."""
@@ -95,11 +98,11 @@ class TestCMCCore:
         loss.backward()
 
         # z1 should have NO gradient (stopped)
-        assert z1.grad is None or z1.grad.abs().max() < 1e-7, \
-            "Primary should have no gradient with stop_grad_primary=True"
+        assert (
+            z1.grad is None or z1.grad.abs().max() < 1e-7
+        ), "Primary should have no gradient with stop_grad_primary=True"
         # z2 should have gradient
-        assert z2.grad is not None and z2.grad.abs().max() > 0, \
-            "Secondary should have gradient"
+        assert z2.grad is not None and z2.grad.abs().max() > 0, "Secondary should have gradient"
 
     def test_no_stop_grad_primary(self):
         """With stop_grad_primary=False, both get gradients."""
@@ -162,28 +165,34 @@ class TestCMCSecondMaskGeneration:
     def test_mask_shape(self):
         """Generated mask has correct shape."""
         mask = CrossMaskConsistency.generate_second_mask(
-            seq_len=32, batch_size=4, mask_ratio=0.35, device=torch.device('cpu'))
+            seq_len=32, batch_size=4, mask_ratio=0.35, device=torch.device("cpu")
+        )
         assert mask.shape == (4, 32)
 
     def test_mask_binary(self):
         """Generated mask is binary (0 or 1)."""
         mask = CrossMaskConsistency.generate_second_mask(
-            seq_len=32, batch_size=4, mask_ratio=0.35, device=torch.device('cpu'))
+            seq_len=32, batch_size=4, mask_ratio=0.35, device=torch.device("cpu")
+        )
         assert (mask >= 0).all() and (mask <= 1).all()
 
     def test_mask_ratio_approximate(self):
         """Generated mask has approximately the target ratio."""
         mask = CrossMaskConsistency.generate_second_mask(
-            seq_len=128, batch_size=8, mask_ratio=0.35, device=torch.device('cpu'))
+            seq_len=128, batch_size=8, mask_ratio=0.35, device=torch.device("cpu")
+        )
         actual_ratio = mask.float().mean().item()
-        assert 0.15 < actual_ratio < 0.55, \
-            f"Mask ratio should be ~0.35, got {actual_ratio:.3f}"
+        assert 0.15 < actual_ratio < 0.55, f"Mask ratio should be ~0.35, got {actual_ratio:.3f}"
 
     def test_mask_uses_spans(self):
         """Generated mask uses contiguous spans (not isolated tokens)."""
         mask = CrossMaskConsistency.generate_second_mask(
-            seq_len=64, batch_size=4, mask_ratio=0.35,
-            span_length_range=(3, 10), device=torch.device('cpu'))
+            seq_len=64,
+            batch_size=4,
+            mask_ratio=0.35,
+            span_length_range=(3, 10),
+            device=torch.device("cpu"),
+        )
         # Check that masked positions tend to be in groups
         # (not a perfect test but catches random per-token masking)
         for b in range(4):
@@ -213,7 +222,7 @@ class TestCMCTheorems:
         overlap = torch.zeros(self.B, self.T, dtype=torch.long)
         overlap[:, 4:8] = 1
 
-        loss, info = cmc(z1, z2, overlap)
+        loss, _info = cmc(z1, z2, overlap)
 
         # The CMC loss IS the mean inconsistency at overlap positions
         # So by definition, mean(||z1-z2||² at overlap) = loss
@@ -221,8 +230,9 @@ class TestCMCTheorems:
         diff = (z1[:, 4:8, :] - z2[:, 4:8, :]) ** 2
         expected_loss = diff.sum() / (self.B * 4)  # B*4 overlap positions
 
-        assert abs(loss.item() - expected_loss.item()) < 1e-4, \
-            f"CMC loss should equal mean inconsistency: {loss.item():.6f} vs {expected_loss.item():.6f}"
+        assert (
+            abs(loss.item() - expected_loss.item()) < 1e-4
+        ), f"CMC loss should equal mean inconsistency: {loss.item():.6f} vs {expected_loss.item():.6f}"
 
     def test_downstream_stability_bound(self):
         """Theorem 2: |f(z1) - f(z2)| ≤ ||w|| · √ε."""
@@ -241,16 +251,16 @@ class TestCMCTheorems:
         probe_norm = w.norm().item()
 
         # Compute actual probe difference at overlap positions
-        f1 = (z1[:, 4:8, :] @ w + b)  # (B, 4)
-        f2 = (z2[:, 4:8, :] @ w + b)  # (B, 4)
-        max_diff = (f1 - f2).abs().max().item()
+        f1 = z1[:, 4:8, :] @ w + b  # (B, 4)
+        f2 = z2[:, 4:8, :] @ w + b  # (B, 4)
+        (f1 - f2).abs().max().item()
 
         # Theoretical bound
         bound = cmc.compute_downstream_stability_bound(loss.item(), probe_norm)
 
         # The bound should hold for the MEAN inconsistency
         # (not necessarily for the max, since bound is on mean)
-        mean_diff = (f1 - f2).abs().mean().item()
+        (f1 - f2).abs().mean().item()
         # For mean, bound should approximately hold
         # (loose check since bound is on sqrt of mean, not mean of sqrt)
         assert bound > 0, "Bound should be positive"
@@ -264,7 +274,9 @@ class TestCMCTheorems:
         bound = cmc.compute_representation_variance_bound(cmc_loss, jepa_loss)
         expected = cmc_loss / 2.0 + jepa_loss
 
-        assert abs(bound - expected) < 1e-6, f"Variance bound should be ε/2 + δ = {expected}, got {bound}"
+        assert (
+            abs(bound - expected) < 1e-6
+        ), f"Variance bound should be ε/2 + δ = {expected}, got {bound}"
 
     def test_triangle_inequality_holds(self):
         """||z1 - z2|| ≤ ||z1 - z*|| + ||z* - z2|| for any z*."""
@@ -296,8 +308,9 @@ class TestCMCTheorems:
 
         # Losses should generally decrease as noise decreases
         # (not strictly monotonic due to random noise, but trend should be clear)
-        assert losses[-1] < losses[0], \
-            f"Consistency should improve with better predictions: {losses}"
+        assert (
+            losses[-1] < losses[0]
+        ), f"Consistency should improve with better predictions: {losses}"
 
 
 class TestCMCModes:
@@ -305,21 +318,20 @@ class TestCMCModes:
 
     def test_always_mode(self):
         """'always' mode computes at every step."""
-        cmc = CrossMaskConsistency(embed_dim=32, mode='always')
+        cmc = CrossMaskConsistency(embed_dim=32, mode="always")
         for step in range(20):
             assert cmc.should_compute(step) is True
 
     def test_interval_mode(self):
         """'interval' mode computes at correct intervals."""
-        cmc = CrossMaskConsistency(embed_dim=32, mode='interval', interval=5)
-        expected = [True, False, False, False, False,
-                    True, False, False, False, False]
+        cmc = CrossMaskConsistency(embed_dim=32, mode="interval", interval=5)
+        expected = [True, False, False, False, False, True, False, False, False, False]
         for step, exp in enumerate(expected):
             assert cmc.should_compute(step) == exp, f"step={step}"
 
     def test_reuse_encoder_mode(self):
         """'reuse_encoder' mode always computes (cheap)."""
-        cmc = CrossMaskConsistency(embed_dim=32, mode='reuse_encoder')
+        cmc = CrossMaskConsistency(embed_dim=32, mode="reuse_encoder")
         for step in range(20):
             assert cmc.should_compute(step) is True
 
@@ -334,7 +346,7 @@ class TestCMCEdgeCases:
         z2 = torch.randn(2, 8, 32)
         overlap = torch.zeros(2, 8, dtype=torch.long)
         overlap[0, 3] = 1  # just 1 position in batch 0
-        loss, info = self.cmc(z1, z2, overlap) if hasattr(self, 'cmc') else cmc(z1, z2, overlap)
+        loss, _info = self.cmc(z1, z2, overlap) if hasattr(self, "cmc") else cmc(z1, z2, overlap)
         assert loss.item() >= 0
 
     def test_all_overlap(self):
@@ -346,7 +358,7 @@ class TestCMCEdgeCases:
         overlap = torch.ones(B, T, dtype=torch.long)  # all overlap
         loss, info = cmc(z1, z2, overlap)
         assert loss.item() >= 0
-        assert info['cmc_overlap_count'] == B * T
+        assert info["cmc_overlap_count"] == B * T
 
     def test_batch_with_mixed_overlap(self):
         """Some batches have overlap, some don't."""
@@ -356,7 +368,7 @@ class TestCMCEdgeCases:
         z2 = torch.randn(B, T, D)
         overlap = torch.zeros(B, T, dtype=torch.long)
         overlap[0, 2:5] = 1  # only batch 0 has overlap
-        loss, info = cmc(z1, z2, overlap)
+        loss, _info = cmc(z1, z2, overlap)
         assert loss.item() >= 0
 
     def test_very_large_difference(self):
@@ -367,7 +379,7 @@ class TestCMCEdgeCases:
         z2 = torch.randn(B, T, D) * 100
         overlap = torch.zeros(B, T, dtype=torch.long)
         overlap[:, 2:5] = 1
-        loss, info = cmc(z1, z2, overlap)
+        loss, _info = cmc(z1, z2, overlap)
         assert math.isfinite(loss.item())
 
     def test_zero_predictions(self):
@@ -378,7 +390,7 @@ class TestCMCEdgeCases:
         z2 = torch.zeros(B, T, D)
         overlap = torch.zeros(B, T, dtype=torch.long)
         overlap[:, 2:5] = 1
-        loss, info = cmc(z1, z2, overlap)
+        loss, _info = cmc(z1, z2, overlap)
         assert loss.item() < 1e-6
 
 
@@ -389,7 +401,7 @@ class TestCMCConfig:
         """Default CMC config is valid."""
         cmc = CrossMaskConsistency(embed_dim=768)
         assert cmc.embed_dim == 768
-        assert cmc.mode == 'interval'
+        assert cmc.mode == "interval"
         assert cmc.interval == 10
         assert cmc.stop_grad_primary is True
         assert cmc.min_overlap_ratio == 0.2
@@ -400,20 +412,20 @@ class TestCMCConfig:
             embed_dim=384,
             second_mask_ratio=0.3,
             min_overlap_ratio=0.1,
-            mode='always',
+            mode="always",
             interval=5,
             stop_grad_primary=False,
         )
         assert cmc.embed_dim == 384
         assert cmc.second_mask_ratio == 0.3
-        assert cmc.mode == 'always'
+        assert cmc.mode == "always"
 
     def test_repr(self):
         """extra_repr produces readable string."""
-        cmc = CrossMaskConsistency(embed_dim=768, mode='interval', interval=10)
+        cmc = CrossMaskConsistency(embed_dim=768, mode="interval", interval=10)
         r = cmc.extra_repr()
-        assert '768' in r
-        assert 'interval' in r
+        assert "768" in r
+        assert "interval" in r
 
 
 class TestCMCIntegration:
@@ -426,7 +438,7 @@ class TestCMCIntegration:
 
         # Simulate JAWP workspace projection
         Q = torch.randn(D, k)
-        U, S, Vt = torch.linalg.svd(Q, full_matrices=False)
+        U, _S, Vt = torch.linalg.svd(Q, full_matrices=False)
         Q = U[:, :k] @ Vt[:k, :]  # orthonormalize
 
         z1 = torch.randn(B, T, D)
@@ -438,7 +450,7 @@ class TestCMCIntegration:
         z1_ws = z1 @ Q  # (B, T, k)
         z2_ws = z2 @ Q  # (B, T, k)
         # Overlap mask stays same dimension
-        loss_ws, info_ws = cmc(z1_ws, z2_ws, overlap)
+        loss_ws, _info_ws = cmc(z1_ws, z2_ws, overlap)
         assert loss_ws.item() >= 0
 
     def test_cmc_after_pcr_refinement(self):
@@ -461,9 +473,8 @@ class TestCMCIntegration:
         loss_refined, _ = cmc(z1_refined, z2_refined, overlap)
 
         # Refined should be more consistent (lower CMC loss)
-        assert loss_refined.item() < loss_base.item(), \
-            "PCR refinement should improve consistency"
+        assert loss_refined.item() < loss_base.item(), "PCR refinement should improve consistency"
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

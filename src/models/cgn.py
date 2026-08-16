@@ -121,9 +121,10 @@
 #    - anneal_steps: steps for temperature annealing (default 10000)
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class ContextualGatingNetwork(nn.Module):
@@ -147,9 +148,15 @@ class ContextualGatingNetwork(nn.Module):
         min_gate: minimum gate value to prevent zeroing. Default 0.01.
     """
 
-    def __init__(self, embed_dim=768, n_groups=8,
-                 tau_start=1.0, tau_end=0.1,
-                 anneal_steps=10000, min_gate=0.01):
+    def __init__(
+        self,
+        embed_dim=768,
+        n_groups=8,
+        tau_start=1.0,
+        tau_end=0.1,
+        anneal_steps=10000,
+        min_gate=0.01,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_groups = n_groups
@@ -159,26 +166,22 @@ class ContextualGatingNetwork(nn.Module):
         self.anneal_steps = max(anneal_steps, 1)
         self.min_gate = min_gate
 
-        assert embed_dim % n_groups == 0, (
-            f"embed_dim={embed_dim} must be divisible by n_groups={n_groups}"
-        )
+        assert (
+            embed_dim % n_groups == 0
+        ), f"embed_dim={embed_dim} must be divisible by n_groups={n_groups}"
 
         # Gate logits for visible positions: (n_groups, 2)
         # Column 0 = gate OFF, Column 1 = gate ON
-        self.gate_logits_visible = nn.Parameter(
-            torch.zeros(n_groups, 2)
-        )
+        self.gate_logits_visible = nn.Parameter(torch.zeros(n_groups, 2))
         # Gate logits for masked positions: (n_groups, 2)
-        self.gate_logits_masked = nn.Parameter(
-            torch.zeros(n_groups, 2)
-        )
+        self.gate_logits_masked = nn.Parameter(torch.zeros(n_groups, 2))
 
         # Per-dimension refinement: lightweight position-dependent shift
         # This allows the gate to be different per position within a group
         self.context_proj = nn.Linear(embed_dim, n_groups, bias=True)
 
         # Track statistics for monitoring
-        self.register_buffer('total_steps', torch.tensor(0, dtype=torch.long))
+        self.register_buffer("total_steps", torch.tensor(0, dtype=torch.long))
 
     def current_tau(self, step=None):
         """Get current Gumbel-Softmax temperature.
@@ -207,9 +210,7 @@ class ContextualGatingNetwork(nn.Module):
         """
         if self.training and tau > 0:
             # Gumbel-Softmax: differentiable approximation to categorical
-            gumbel_noise = -torch.log(
-                -torch.log(torch.rand_like(logits) + 1e-20) + 1e-20
-            )
+            gumbel_noise = -torch.log(-torch.log(torch.rand_like(logits) + 1e-20) + 1e-20)
             perturbed = (logits + gumbel_noise) / max(tau, 1e-6)
             probs = F.softmax(perturbed, dim=-1)
         else:
@@ -230,7 +231,7 @@ class ContextualGatingNetwork(nn.Module):
             z_gated: (B, T, D) gated representations.
             gate_info: dict with gating statistics.
         """
-        B, T, D = z.shape
+        _B, _T, _D = z.shape
         tau = self.current_tau(step)
 
         # Update step counter
@@ -243,7 +244,7 @@ class ContextualGatingNetwork(nn.Module):
 
         # Extract ON probabilities: (n_groups,)
         gate_on_visible = probs_visible[:, 1]  # P(gate=ON | visible)
-        gate_on_masked = probs_masked[:, 1]    # P(gate=ON | masked)
+        gate_on_masked = probs_masked[:, 1]  # P(gate=ON | masked)
 
         # Compute position-dependent gate modulation via context_proj
         # context_scores: (B, T, n_groups) — how much each group activates
@@ -258,9 +259,8 @@ class ContextualGatingNetwork(nn.Module):
         gate_visible_base = gate_on_visible.unsqueeze(0).unsqueeze(0)  # (1, 1, G)
         gate_masked_base = gate_on_masked.unsqueeze(0).unsqueeze(0)  # (1, 1, G)
         gate_base = (
-            (1.0 - mask_expanded) * gate_visible_base +
-            mask_expanded * gate_masked_base
-        )  # (B, T, G)
+            1.0 - mask_expanded
+        ) * gate_visible_base + mask_expanded * gate_masked_base  # (B, T, G)
 
         # Modulate by context: positions with higher context scores
         # get more gating (both visible and masked benefit)
@@ -271,9 +271,7 @@ class ContextualGatingNetwork(nn.Module):
 
         # Expand gate_values from groups to dimensions
         # (B, T, G) → (B, T, D) by repeating each group value group_dim times
-        gate_expanded = gate_values.repeat_interleave(
-            self.group_dim, dim=-1
-        )  # (B, T, D)
+        gate_expanded = gate_values.repeat_interleave(self.group_dim, dim=-1)  # (B, T, D)
 
         # Apply gating
         z_gated = z * gate_expanded
@@ -307,13 +305,13 @@ class ContextualGatingNetwork(nn.Module):
             routing_gap = (mean_gate_masked - mean_gate_visible).abs()
 
         gate_info = {
-            'cgn_tau': tau,
-            'cgn_gate_diff': gate_diff.item(),
-            'cgn_sparsity': sparsity.item(),
-            'cgn_entropy': entropy.item(),
-            'cgn_mean_gate_visible': mean_gate_visible.item(),
-            'cgn_mean_gate_masked': mean_gate_masked.item(),
-            'cgn_routing_gap': routing_gap.item(),
+            "cgn_tau": tau,
+            "cgn_gate_diff": gate_diff.item(),
+            "cgn_sparsity": sparsity.item(),
+            "cgn_entropy": entropy.item(),
+            "cgn_mean_gate_visible": mean_gate_visible.item(),
+            "cgn_mean_gate_masked": mean_gate_masked.item(),
+            "cgn_routing_gap": routing_gap.item(),
         }
 
         return z_gated, gate_info
@@ -330,9 +328,7 @@ class ContextualGatingNetwork(nn.Module):
         probs_m = F.softmax(self.gate_logits_masked, dim=-1)[:, 1]
 
         # Cosine similarity between gate patterns
-        cos_sim = F.cosine_similarity(
-            probs_v.unsqueeze(0), probs_m.unsqueeze(0)
-        ).item()
+        cos_sim = F.cosine_similarity(probs_v.unsqueeze(0), probs_m.unsqueeze(0)).item()
 
         # Orthogonality = 1 - |cos_sim|
         # Perfectly same direction: 0, perfectly orthogonal: 1
@@ -353,13 +349,12 @@ class ContextualGatingNetwork(nn.Module):
         Returns:
             dict with routing efficiency metrics.
         """
-        B, T, D = z.shape
+        _B, _T, _D = z.shape
         mask_bool = mask_positions.bool()
         vis_bool = ~mask_bool
 
         if not mask_bool.any() or not vis_bool.any():
-            return {'routing_efficiency': 1.0, 'context_preservation': 1.0,
-                    'prediction_focus': 1.0}
+            return {"routing_efficiency": 1.0, "context_preservation": 1.0, "prediction_focus": 1.0}
 
         # Compute gate values
         probs_v = F.softmax(self.gate_logits_visible, dim=-1)[:, 1]
@@ -390,12 +385,14 @@ class ContextualGatingNetwork(nn.Module):
         efficiency = (context_pres.item() * pred_focus.item()) ** 0.5
 
         return {
-            'routing_efficiency': efficiency,
-            'context_preservation': context_pres.item(),
-            'prediction_focus': pred_focus.item(),
+            "routing_efficiency": efficiency,
+            "context_preservation": context_pres.item(),
+            "prediction_focus": pred_focus.item(),
         }
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, n_groups={self.n_groups}, '
-                f'tau_start={self.tau_start}, tau_end={self.tau_end}, '
-                f'anneal_steps={self.anneal_steps}')
+        return (
+            f"embed_dim={self.embed_dim}, n_groups={self.n_groups}, "
+            f"tau_start={self.tau_start}, tau_end={self.tau_end}, "
+            f"anneal_steps={self.anneal_steps}"
+        )

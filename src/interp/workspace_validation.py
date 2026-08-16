@@ -18,13 +18,14 @@
 # If subspace_similarity(Q, SAE_workspace) > 0.8, the workspace claim
 # is empirically validated.
 
-import math
+from __future__ import annotations
+
 import logging
-from typing import Optional, Dict, Tuple
+import math
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════
 #  TopK Sparse Autoencoder
 # ═══════════════════════════════════════════════════════════════════
+
 
 class TopKSAE(nn.Module):
     """TopK Sparse Autoencoder for representation decomposition.
@@ -59,7 +61,7 @@ class TopKSAE(nn.Module):
         self.W_dec = nn.Parameter(torch.randn(n_features, embed_dim) * (1.0 / n_features))
         self.b_dec = nn.Parameter(torch.zeros(embed_dim))
 
-    def encode(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Encode with TopK activation.
 
         Returns:
@@ -77,7 +79,7 @@ class TopKSAE(nn.Module):
         """Decode sparse features back to input space."""
         return features @ self.W_dec + self.b_dec
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         """Full forward pass with reconstruction loss.
 
         Returns:
@@ -98,22 +100,22 @@ class TopKSAE(nn.Module):
         dead_fraction = 1.0 - active_features.numel() / self.n_features
 
         return {
-            'loss': loss_recon,
-            'x_hat': x_hat,
-            'features': features,
-            'indices': indices,
-            'sparsity': sparsity,
-            'dead_fraction': dead_fraction,
+            "loss": loss_recon,
+            "x_hat": x_hat,
+            "features": features,
+            "indices": indices,
+            "sparsity": sparsity,
+            "dead_fraction": dead_fraction,
         }
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, n_features={self.n_features}, '
-                f'k={self.k}')
+        return f"embed_dim={self.embed_dim}, n_features={self.n_features}, " f"k={self.k}"
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  Workspace feature identification
 # ═══════════════════════════════════════════════════════════════════
+
 
 def identify_workspace_features(
     sae: TopKSAE,
@@ -121,7 +123,7 @@ def identify_workspace_features(
     probe_labels: torch.Tensor,
     n_probes: int = 5,
     top_fraction: float = 0.1,
-) -> Tuple[torch.Tensor, Dict[str, float]]:
+) -> tuple[torch.Tensor, dict[str, float]]:
     """Identify SAE features that are most predictive of downstream tasks.
 
     For each SAE feature, fit a linear probe to each downstream label.
@@ -174,10 +176,10 @@ def identify_workspace_features(
     n_workspace = max(1, int(F_dim * top_fraction))
     _, top_indices = torch.topk(feature_scores, n_workspace)
     info = {
-        'n_workspace_features': n_workspace,
-        'total_features': F_dim,
-        'top_score': feature_scores[top_indices[0]].item(),
-        'mean_score': feature_scores.mean().item(),
+        "n_workspace_features": n_workspace,
+        "total_features": F_dim,
+        "top_score": feature_scores[top_indices[0]].item(),
+        "mean_score": feature_scores.mean().item(),
     }
     return top_indices, info
 
@@ -186,11 +188,12 @@ def identify_workspace_features(
 #  Subspace similarity: JAWP Q vs SAE workspace
 # ═══════════════════════════════════════════════════════════════════
 
+
 def compute_workspace_similarity(
     Q: torch.Tensor,
     sae: TopKSAE,
     workspace_feature_indices: torch.Tensor,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute subspace similarity between JAWP Q and SAE workspace.
 
     The SAE workspace subspace is spanned by the decoder vectors
@@ -204,7 +207,7 @@ def compute_workspace_similarity(
     Returns:
         dict with similarity metrics.
     """
-    D, k = Q.shape
+    _D, k = Q.shape
 
     # Get SAE workspace basis vectors
     # W_dec: (n_features, D) — each row is a decoder vector
@@ -213,11 +216,16 @@ def compute_workspace_similarity(
     m = workspace_vectors.shape[0]
 
     if m == 0 or k == 0:
-        return {'subspace_similarity': 0.0, 'principal_angles': [],
-                'mean_angle': 90.0, 'workspace_dim_sae': 0, 'workspace_dim_jawp': k}
+        return {
+            "subspace_similarity": 0.0,
+            "principal_angles": [],
+            "mean_angle": 90.0,
+            "workspace_dim_sae": 0,
+            "workspace_dim_jawp": k,
+        }
 
     # Orthogonalize SAE workspace vectors via QR
-    ws_ortho, R = torch.linalg.qr(workspace_vectors.T, mode='reduced')
+    ws_ortho, _R = torch.linalg.qr(workspace_vectors.T, mode="reduced")
     # ws_ortho: (D, r) where r = rank of workspace_vectors
     r = ws_ortho.shape[1]
 
@@ -236,14 +244,14 @@ def compute_workspace_similarity(
     principal_angles_deg = principal_angles_rad * 180.0 / math.pi
 
     # Subspace similarity: mean of squared cosines = mean of squared singular values
-    similarity = (singular_values ** 2).mean().item()
+    similarity = (singular_values**2).mean().item()
 
     return {
-        'subspace_similarity': similarity,
-        'principal_angles': principal_angles_deg.tolist(),
-        'mean_angle': principal_angles_deg.mean().item(),
-        'workspace_dim_sae': r,
-        'workspace_dim_jawp': k,
+        "subspace_similarity": similarity,
+        "principal_angles": principal_angles_deg.tolist(),
+        "mean_angle": principal_angles_deg.mean().item(),
+        "workspace_dim_sae": r,
+        "workspace_dim_jawp": k,
     }
 
 
@@ -251,11 +259,12 @@ def compute_workspace_similarity(
 #  Bootstrap confidence interval
 # ═══════════════════════════════════════════════════════════════════
 
+
 def bootstrap_ci(
     values: torch.Tensor,
     n_bootstrap: int = 1000,
     confidence: float = 0.95,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Compute bootstrap confidence interval for mean of values.
 
     Args:
@@ -271,7 +280,7 @@ def bootstrap_ci(
         m = values.mean().item()
         return m, m, m
 
-    values_np = values.cpu().numpy()
+    values.cpu().numpy()
     rng = torch.Generator()
     rng.manual_seed(42)
 
@@ -296,17 +305,18 @@ def bootstrap_ci(
 #  Full validation pipeline
 # ═══════════════════════════════════════════════════════════════════
 
+
 def validate_workspace_claim(
     Q: torch.Tensor,
     representations: torch.Tensor,
     probe_labels: torch.Tensor,
-    sae: Optional[TopKSAE] = None,
+    sae: TopKSAE | None = None,
     n_sae_features: int = 8192,
     sae_k: int = 32,
     n_probes: int = 5,
     top_fraction: float = 0.1,
     n_bootstrap: int = 1000,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Full workspace validation pipeline.
 
     1. Train (or use provided) SAE on representations
@@ -334,13 +344,18 @@ def validate_workspace_claim(
     # Create SAE if not provided
     if sae is None:
         sae = TopKSAE(embed_dim=D, n_features=n_sae_features, k=sae_k)
-        logger.warning('SAE not trained — using random decoder. '
-                       'Provide a pre-trained SAE for valid results.')
+        logger.warning(
+            "SAE not trained — using random decoder. "
+            "Provide a pre-trained SAE for valid results."
+        )
 
     # Identify workspace features
     ws_indices, ws_info = identify_workspace_features(
-        sae, representations, probe_labels,
-        n_probes=n_probes, top_fraction=top_fraction,
+        sae,
+        representations,
+        probe_labels,
+        n_probes=n_probes,
+        top_fraction=top_fraction,
     )
 
     # Compute subspace similarity
@@ -349,20 +364,20 @@ def validate_workspace_claim(
     # Bootstrap CI on per-sample workspace utilization
     with torch.no_grad():
         ws_projection = representations @ Q @ Q.T  # (N, D)
-        ws_util = (ws_projection ** 2).sum(dim=-1) / (representations ** 2).sum(dim=-1).clamp(min=1e-10)
+        ws_util = (ws_projection**2).sum(dim=-1) / (representations**2).sum(dim=-1).clamp(min=1e-10)
 
     mean_util, ci_lo, ci_hi = bootstrap_ci(ws_util, n_bootstrap=n_bootstrap)
 
     result = {
         **similarity_result,
         **ws_info,
-        'ws_utilization_mean': mean_util,
-        'ws_utilization_ci_lower': ci_lo,
-        'ws_utilization_ci_upper': ci_hi,
-        'n_samples': N,
-        'embed_dim': D,
-        'workspace_dim_jawp': k,
-        'workspace_claim_valid': similarity_result['subspace_similarity'] > 0.8,
+        "ws_utilization_mean": mean_util,
+        "ws_utilization_ci_lower": ci_lo,
+        "ws_utilization_ci_upper": ci_hi,
+        "n_samples": N,
+        "embed_dim": D,
+        "workspace_dim_jawp": k,
+        "workspace_claim_valid": similarity_result["subspace_similarity"] > 0.8,
     }
 
     return result

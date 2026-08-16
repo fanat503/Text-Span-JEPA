@@ -129,11 +129,14 @@
 #
 #  where R_sharpness = ρ_Q is bounded by WSR.
 
+from __future__ import annotations
+
 import math
+from typing import Callable
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Tuple, Optional, Callable
+from torch import nn
 
 
 class WorkspaceSharpnessRegularization(nn.Module):
@@ -165,7 +168,7 @@ class WorkspaceSharpnessRegularization(nn.Module):
         eta: float = 0.01,
         ema_beta: float = 0.999,
         warmup_steps: int = 500,
-        mode: str = 'gradient',
+        mode: str = "gradient",
         eps: float = 1e-8,
     ):
         super().__init__()
@@ -177,15 +180,15 @@ class WorkspaceSharpnessRegularization(nn.Module):
         self.mode = mode
         self.eps = eps
 
-        if mode not in ('sam', 'gradient'):
+        if mode not in ("sam", "gradient"):
             raise ValueError(f"mode must be 'sam' or 'gradient', got '{mode}'")
 
         # Running statistics
-        self.register_buffer('running_sharpness', torch.tensor(0.0))
-        self.register_buffer('running_spectral_sharpness', torch.tensor(0.0))
-        self.register_buffer('running_directional_sharpness', torch.tensor(0.0))
-        self.register_buffer('running_grad_norm', torch.tensor(0.0))
-        self.register_buffer('total_steps', torch.tensor(0, dtype=torch.long))
+        self.register_buffer("running_sharpness", torch.tensor(0.0))
+        self.register_buffer("running_spectral_sharpness", torch.tensor(0.0))
+        self.register_buffer("running_directional_sharpness", torch.tensor(0.0))
+        self.register_buffer("running_grad_norm", torch.tensor(0.0))
+        self.register_buffer("total_steps", torch.tensor(0, dtype=torch.long))
 
     def _grassmann_gradient(
         self,
@@ -222,7 +225,7 @@ class WorkspaceSharpnessRegularization(nn.Module):
         """
         Q_retracted, _ = torch.linalg.qr(Q)
         # Ensure positive diagonal (canonical QR)
-        signs = torch.sign(torch.diag(Q_retracted[:Q.size(1), :]))
+        signs = torch.sign(torch.diag(Q_retracted[: Q.size(1), :]))
         signs[signs == 0] = 1
         Q_retracted = Q_retracted * signs.unsqueeze(0)
         return Q_retracted
@@ -230,11 +233,11 @@ class WorkspaceSharpnessRegularization(nn.Module):
     def forward(
         self,
         Q: torch.Tensor,
-        loss_fn: Optional[Callable] = None,
-        z_pred: Optional[torch.Tensor] = None,
-        z_target: Optional[torch.Tensor] = None,
+        loss_fn: Callable | None = None,
+        z_pred: torch.Tensor | None = None,
+        z_target: torch.Tensor | None = None,
         step: int = 0,
-    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+    ) -> tuple[torch.Tensor, dict[str, float]]:
         """Compute Workspace Sharpness Regularization loss.
 
         Args:
@@ -249,19 +252,19 @@ class WorkspaceSharpnessRegularization(nn.Module):
             loss: scalar tensor (≥ 0).
             info: dict with diagnostics.
         """
-        D, k = Q.shape
+        _D, _k = Q.shape
 
         # Warmup
         warmup_factor = min(1.0, step / max(self.warmup_steps, 1))
         if warmup_factor < 1e-6:
             zero = Q.new_tensor(0.0)
             return zero, {
-                'wsr_loss': 0.0,
-                'wsr_warmup': True,
-                'wsr_warmup_factor': 0.0,
+                "wsr_loss": 0.0,
+                "wsr_warmup": True,
+                "wsr_warmup_factor": 0.0,
             }
 
-        if self.mode == 'gradient':
+        if self.mode == "gradient":
             loss, info = self._gradient_mode(Q, step, warmup_factor)
         else:
             loss, info = self._sam_mode(Q, loss_fn, z_pred, z_target, step, warmup_factor)
@@ -273,7 +276,7 @@ class WorkspaceSharpnessRegularization(nn.Module):
         Q: torch.Tensor,
         step: int,
         warmup_factor: float,
-    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+    ) -> tuple[torch.Tensor, dict[str, float]]:
         """Compute WSR via Grassmann gradient norm (efficient, no second forward pass).
 
         L_WSR ≈ ρ · ||grad_Gr(Q)||_F / max(||Q||_F, eps)
@@ -289,7 +292,7 @@ class WorkspaceSharpnessRegularization(nn.Module):
             loss: scalar tensor.
             info: dict with diagnostics.
         """
-        D, k = Q.shape
+        _D, k = Q.shape
 
         # Compute Euclidean gradient of Q (if Q has grad)
         if Q.grad is not None:
@@ -327,29 +330,25 @@ class WorkspaceSharpnessRegularization(nn.Module):
 
         # Update running statistics
         with torch.no_grad():
-            self.running_sharpness.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * sharpness.item()
-            )
+            self.running_sharpness.mul_(self.ema_beta).add_((1 - self.ema_beta) * sharpness.item())
             self.running_spectral_sharpness.mul_(self.ema_beta).add_(
                 (1 - self.ema_beta) * spectral_sharpness.item()
             )
             self.running_directional_sharpness.mul_(self.ema_beta).add_(
                 (1 - self.ema_beta) * directional_sharpness.item()
             )
-            self.running_grad_norm.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * grad_norm.item()
-            )
+            self.running_grad_norm.mul_(self.ema_beta).add_((1 - self.ema_beta) * grad_norm.item())
             self.total_steps.add_(1)
 
         info = {
-            'wsr_loss': loss.item(),
-            'wsr_sharpness': sharpness.item(),
-            'wsr_spectral_sharpness': spectral_sharpness.item(),
-            'wsr_directional_sharpness': directional_sharpness.item(),
-            'wsr_grad_norm': grad_norm.item(),
-            'wsr_rho': self.rho,
-            'wsr_warmup_factor': warmup_factor,
-            'wsr_warmup': warmup_factor < 1.0,
+            "wsr_loss": loss.item(),
+            "wsr_sharpness": sharpness.item(),
+            "wsr_spectral_sharpness": spectral_sharpness.item(),
+            "wsr_directional_sharpness": directional_sharpness.item(),
+            "wsr_grad_norm": grad_norm.item(),
+            "wsr_rho": self.rho,
+            "wsr_warmup_factor": warmup_factor,
+            "wsr_warmup": warmup_factor < 1.0,
         }
 
         return loss, info
@@ -358,11 +357,11 @@ class WorkspaceSharpnessRegularization(nn.Module):
         self,
         Q: torch.Tensor,
         loss_fn: Callable,
-        z_pred: Optional[torch.Tensor],
-        z_target: Optional[torch.Tensor],
+        z_pred: torch.Tensor | None,
+        z_target: torch.Tensor | None,
         step: int,
         warmup_factor: float,
-    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+    ) -> tuple[torch.Tensor, dict[str, float]]:
         """Compute WSR via explicit perturbation (SAM-style).
 
         L_WSR = L(Q_perturbed) - L(Q)
@@ -383,7 +382,7 @@ class WorkspaceSharpnessRegularization(nn.Module):
             loss: scalar tensor.
             info: dict with diagnostics.
         """
-        D, k = Q.shape
+        _D, k = Q.shape
 
         # Compute current loss
         with torch.no_grad():
@@ -410,7 +409,9 @@ class WorkspaceSharpnessRegularization(nn.Module):
 
         # Compute perturbed loss
         with torch.no_grad():
-            L_perturbed = loss_fn(Q_perturbed, z_pred, z_target).item() if loss_fn is not None else 0.0
+            L_perturbed = (
+                loss_fn(Q_perturbed, z_pred, z_target).item() if loss_fn is not None else 0.0
+            )
 
         # Sharpness = loss increase under perturbation
         sharpness = max(L_perturbed - L_current, 0.0)
@@ -425,31 +426,27 @@ class WorkspaceSharpnessRegularization(nn.Module):
 
         # Update running statistics
         with torch.no_grad():
-            self.running_sharpness.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * sharpness
-            )
+            self.running_sharpness.mul_(self.ema_beta).add_((1 - self.ema_beta) * sharpness)
             self.running_spectral_sharpness.mul_(self.ema_beta).add_(
                 (1 - self.ema_beta) * spectral_sharpness.item()
             )
             self.running_directional_sharpness.mul_(self.ema_beta).add_(
                 (1 - self.ema_beta) * directional_sharpness.item()
             )
-            self.running_grad_norm.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * grad_norm.item()
-            )
+            self.running_grad_norm.mul_(self.ema_beta).add_((1 - self.ema_beta) * grad_norm.item())
             self.total_steps.add_(1)
 
         info = {
-            'wsr_loss': loss_tensor.item(),
-            'wsr_sharpness': sharpness,
-            'wsr_spectral_sharpness': spectral_sharpness.item(),
-            'wsr_directional_sharpness': directional_sharpness.item(),
-            'wsr_grad_norm': grad_norm.item(),
-            'wsr_rho': self.rho,
-            'wsr_warmup_factor': warmup_factor,
-            'wsr_warmup': warmup_factor < 1.0,
-            'wsr_loss_current': L_current,
-            'wsr_loss_perturbed': L_perturbed,
+            "wsr_loss": loss_tensor.item(),
+            "wsr_sharpness": sharpness,
+            "wsr_spectral_sharpness": spectral_sharpness.item(),
+            "wsr_directional_sharpness": directional_sharpness.item(),
+            "wsr_grad_norm": grad_norm.item(),
+            "wsr_rho": self.rho,
+            "wsr_warmup_factor": warmup_factor,
+            "wsr_warmup": warmup_factor < 1.0,
+            "wsr_loss_current": L_current,
+            "wsr_loss_perturbed": L_perturbed,
         }
 
         return loss_tensor, info
@@ -473,7 +470,7 @@ class WorkspaceSharpnessRegularization(nn.Module):
         """
         rho_Q = self.running_sharpness.item()
         if n_samples <= 0 or rho_Q <= 0:
-            return float('inf')
+            return float("inf")
         return lipschitz_constant * math.sqrt(rho_Q / n_samples)
 
     @torch.no_grad()
@@ -496,19 +493,22 @@ class WorkspaceSharpnessRegularization(nn.Module):
             PAC-Bayes upper bound.
         """
         if n_samples <= 0:
-            return float('inf')
+            return float("inf")
         complexity = (prior_kl + math.log(max(n_samples, 1) / delta)) / n_samples
         return self.running_sharpness.item() + complexity
 
     def extra_repr(self) -> str:
-        return (f'embed_dim={self.embed_dim}, rho={self.rho}, '
-                f'eta={self.eta}, mode={self.mode}, '
-                f'warmup_steps={self.warmup_steps}')
+        return (
+            f"embed_dim={self.embed_dim}, rho={self.rho}, "
+            f"eta={self.eta}, mode={self.mode}, "
+            f"warmup_steps={self.warmup_steps}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  One-line convenience function
 # ═══════════════════════════════════════════════════════════════════
+
 
 def wsr_sharpness(Q, embed_dim=768, rho=0.05, eta=0.01, step=0):
     """Workspace sharpness regularization — one function call.

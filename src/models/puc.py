@@ -23,11 +23,13 @@
 # which is Gaussian with covariance (2λ)^{-1} I.
 # PUC drives Σ_pred toward this optimal covariance.
 
+from __future__ import annotations
+
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Tuple, Optional
+from torch import nn
 
 
 class PredictionUncertaintyCalibration(nn.Module):
@@ -57,8 +59,8 @@ class PredictionUncertaintyCalibration(nn.Module):
     def __init__(
         self,
         embed_dim: int = 768,
-        n_components: Optional[int] = None,
-        target_entropy: Optional[float] = None,
+        n_components: int | None = None,
+        target_entropy: float | None = None,
         eta: float = 0.01,
         ema_beta: float = 0.999,
         warmup_steps: int = 500,
@@ -80,17 +82,14 @@ class PredictionUncertaintyCalibration(nn.Module):
 
         # Running statistics for covariance estimation
         # We track the top-n_components eigenvalues via online power iteration
-        self.register_buffer('running_mean', torch.zeros(embed_dim))
-        self.register_buffer('running_eigenvalues', torch.ones(self.n_components))
-        self.register_buffer('total_steps', torch.tensor(0, dtype=torch.long))
-        self.register_buffer('running_entropy', torch.tensor(self.target_entropy))
-        self.register_buffer('running_overconfidence', torch.tensor(0.0))
+        self.register_buffer("running_mean", torch.zeros(embed_dim))
+        self.register_buffer("running_eigenvalues", torch.ones(self.n_components))
+        self.register_buffer("total_steps", torch.tensor(0, dtype=torch.long))
+        self.register_buffer("running_entropy", torch.tensor(self.target_entropy))
+        self.register_buffer("running_overconfidence", torch.tensor(0.0))
 
         # Projection vectors for online eigenvalue estimation (Oja's rule)
-        self.register_buffer(
-            'proj_vectors',
-            torch.randn(self.n_components, embed_dim)
-        )
+        self.register_buffer("proj_vectors", torch.randn(self.n_components, embed_dim))
         # Orthogonalize initial projection vectors
         with torch.no_grad():
             self._orthogonalize_projections()
@@ -111,9 +110,9 @@ class PredictionUncertaintyCalibration(nn.Module):
     def forward(
         self,
         z_pred: torch.Tensor,
-        z_target: Optional[torch.Tensor] = None,
+        z_target: torch.Tensor | None = None,
         step: int = 0,
-    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+    ) -> tuple[torch.Tensor, dict[str, any]]:
         """Compute PUC calibration loss.
 
         Args:
@@ -125,7 +124,7 @@ class PredictionUncertaintyCalibration(nn.Module):
             loss: scalar tensor (≥ 0).
             info: dict with diagnostics.
         """
-        B, T, D = z_pred.shape
+        _B, _T, D = z_pred.shape
         z_flat = z_pred.reshape(-1, D)  # (N, D) where N = B*T
         N = z_flat.size(0)
 
@@ -133,15 +132,13 @@ class PredictionUncertaintyCalibration(nn.Module):
         warmup_factor = min(1.0, step / max(self.warmup_steps, 1))
         if warmup_factor < 1e-6:
             zero = torch.tensor(0.0, device=z_pred.device)
-            return zero, {'puc_loss': 0.0, 'puc_warmup': True, 'puc_warmup_factor': warmup_factor}
+            return zero, {"puc_loss": 0.0, "puc_warmup": True, "puc_warmup_factor": warmup_factor}
 
         # --- Online covariance eigenvalue estimation via Oja's rule ---
         with torch.no_grad():
             # Update running mean
             batch_mean = z_flat.mean(dim=0)
-            self.running_mean.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * batch_mean
-            )
+            self.running_mean.mul_(self.ema_beta).add_((1 - self.ema_beta) * batch_mean)
 
             # Center the data
             z_centered = z_flat - self.running_mean  # (N, D)
@@ -182,12 +179,18 @@ class PredictionUncertaintyCalibration(nn.Module):
         # Differential entropy of Gaussian: H = 0.5 * sum(log(2πe * λ_i))
         # For tracked components:
         log_eigenvalues = torch.log(eigenvalues)
-        tracked_entropy = 0.5 * (log_eigenvalues.sum() + self.n_components * math.log(2 * math.pi * math.e))
+        tracked_entropy = 0.5 * (
+            log_eigenvalues.sum() + self.n_components * math.log(2 * math.pi * math.e)
+        )
 
         # For untracked components, assume they have the mean eigenvalue
         # (conservative estimate)
         mean_eigenvalue = eigenvalues.mean()
-        untracked_entropy = 0.5 * (D - self.n_components) * (math.log(2 * math.pi * math.e) + math.log(mean_eigenvalue.item() + 1e-8))
+        untracked_entropy = (
+            0.5
+            * (D - self.n_components)
+            * (math.log(2 * math.pi * math.e) + math.log(mean_eigenvalue.item() + 1e-8))
+        )
 
         estimated_entropy = tracked_entropy.item() + untracked_entropy
 
@@ -196,14 +199,19 @@ class PredictionUncertaintyCalibration(nn.Module):
         # We want: H(z_pred) ≥ H_target
         # Loss = eta * max(0, H_target - H(z_pred))
         entropy_deficit = max(0.0, self.target_entropy - estimated_entropy)
-        loss = self.eta * warmup_factor * entropy_deficit
+        self.eta * warmup_factor * entropy_deficit
 
         # Convert to tensor for gradient flow (through eigenvalues)
         # The differentiable path: encourage large eigenvalues
         log_det_tracked = log_eigenvalues.sum()  # differentiable
         # log-det barrier: penalize small eigenvalues
         log_det_barrier = -log_det_tracked  # large when eigenvalues are small
-        loss_tensor = self.eta * warmup_factor * F.relu(log_det_barrier + self.n_components * 10.0) / self.n_components
+        loss_tensor = (
+            self.eta
+            * warmup_factor
+            * F.relu(log_det_barrier + self.n_components * 10.0)
+            / self.n_components
+        )
 
         # Use the cleaner of the two
         if entropy_deficit > 0:
@@ -214,47 +222,49 @@ class PredictionUncertaintyCalibration(nn.Module):
         # --- Diagnostics ---
         with torch.no_grad():
             self.running_entropy.mul_(0.99).add_(0.01 * estimated_entropy)
-            overconfidence = max(0.0, (self.target_entropy - estimated_entropy) / (self.target_entropy + 1e-8))
+            overconfidence = max(
+                0.0, (self.target_entropy - estimated_entropy) / (self.target_entropy + 1e-8)
+            )
             self.running_overconfidence.mul_(0.99).add_(0.01 * overconfidence)
             self.total_steps.add_(1)
 
         info = {
-            'puc_loss': final_loss.item() if torch.is_tensor(final_loss) else final_loss,
-            'puc_entropy': estimated_entropy,
-            'puc_target_entropy': self.target_entropy,
-            'puc_entropy_deficit': entropy_deficit,
-            'puc_overconfidence': overconfidence,
-            'puc_warmup_factor': warmup_factor,
-            'puc_min_eigenvalue': eigenvalues.min().item(),
-            'puc_max_eigenvalue': eigenvalues.max().item(),
-            'puc_log_det': log_det_tracked.item(),
-            'puc_n_components': self.n_components,
+            "puc_loss": final_loss.item() if torch.is_tensor(final_loss) else final_loss,
+            "puc_entropy": estimated_entropy,
+            "puc_target_entropy": self.target_entropy,
+            "puc_entropy_deficit": entropy_deficit,
+            "puc_overconfidence": overconfidence,
+            "puc_warmup_factor": warmup_factor,
+            "puc_min_eigenvalue": eigenvalues.min().item(),
+            "puc_max_eigenvalue": eigenvalues.max().item(),
+            "puc_log_det": log_det_tracked.item(),
+            "puc_n_components": self.n_components,
         }
 
         return final_loss, info
 
-    def checkpoint_dict(self) -> Dict[str, any]:
+    def checkpoint_dict(self) -> dict[str, any]:
         """Get state for checkpoint save."""
         return {
-            'running_mean': self.running_mean.clone(),
-            'running_eigenvalues': self.running_eigenvalues.clone(),
-            'running_entropy': self.running_entropy.clone(),
-            'running_overconfidence': self.running_overconfidence.clone(),
-            'total_steps': self.total_steps.clone(),
-            'proj_vectors': self.proj_vectors.clone(),
+            "running_mean": self.running_mean.clone(),
+            "running_eigenvalues": self.running_eigenvalues.clone(),
+            "running_entropy": self.running_entropy.clone(),
+            "running_overconfidence": self.running_overconfidence.clone(),
+            "total_steps": self.total_steps.clone(),
+            "proj_vectors": self.proj_vectors.clone(),
         }
 
-    def load_checkpoint(self, ckpt: Dict[str, any]):
+    def load_checkpoint(self, ckpt: dict[str, any]):
         """Restore from checkpoint."""
-        if 'running_mean' in ckpt:
-            self.running_mean.copy_(ckpt['running_mean'])
-        if 'running_eigenvalues' in ckpt:
-            self.running_eigenvalues.copy_(ckpt['running_eigenvalues'])
-        if 'running_entropy' in ckpt:
-            self.running_entropy.copy_(ckpt['running_entropy'])
-        if 'running_overconfidence' in ckpt:
-            self.running_overconfidence.copy_(ckpt['running_overconfidence'])
-        if 'total_steps' in ckpt:
-            self.total_steps.copy_(ckpt['total_steps'])
-        if 'proj_vectors' in ckpt:
-            self.proj_vectors.copy_(ckpt['proj_vectors'])
+        if "running_mean" in ckpt:
+            self.running_mean.copy_(ckpt["running_mean"])
+        if "running_eigenvalues" in ckpt:
+            self.running_eigenvalues.copy_(ckpt["running_eigenvalues"])
+        if "running_entropy" in ckpt:
+            self.running_entropy.copy_(ckpt["running_entropy"])
+        if "running_overconfidence" in ckpt:
+            self.running_overconfidence.copy_(ckpt["running_overconfidence"])
+        if "total_steps" in ckpt:
+            self.total_steps.copy_(ckpt["total_steps"])
+        if "proj_vectors" in ckpt:
+            self.proj_vectors.copy_(ckpt["proj_vectors"])

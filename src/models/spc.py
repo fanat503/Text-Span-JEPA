@@ -155,12 +155,13 @@
 #    - init: 'dct' (DCT-II basis) or 'learned' (random orthogonal)
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
-def _dct_basis(D: int, device='cpu', dtype=torch.float32) -> torch.Tensor:
+def _dct_basis(D: int, device="cpu", dtype=torch.float32) -> torch.Tensor:
     """Construct DCT-II basis matrix of size (D, D).
 
     The DCT-II basis is the standard frequency decomposition for 1D signals.
@@ -207,8 +208,9 @@ class SpectralPredictiveCoding(nn.Module):
         eps: numerical stability constant (default 1e-6).
     """
 
-    def __init__(self, embed_dim=768, n_bands=8, init='dct',
-                 min_weight=0.1, weight_lr=0.01, eps=1e-6):
+    def __init__(
+        self, embed_dim=768, n_bands=8, init="dct", min_weight=0.1, weight_lr=0.01, eps=1e-6
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_bands = n_bands
@@ -217,9 +219,9 @@ class SpectralPredictiveCoding(nn.Module):
         self.weight_lr = weight_lr
         self.eps = eps
 
-        assert embed_dim % n_bands == 0, (
-            f"embed_dim={embed_dim} must be divisible by n_bands={n_bands}"
-        )
+        assert (
+            embed_dim % n_bands == 0
+        ), f"embed_dim={embed_dim} must be divisible by n_bands={n_bands}"
 
         # Learned frequency transformation F ∈ R^{D × D}
         # Initialized as DCT-II basis (standard frequency decomposition)
@@ -232,30 +234,25 @@ class SpectralPredictiveCoding(nn.Module):
         self.log_band_weights = nn.Parameter(torch.zeros(n_bands))
 
         # Running statistics for online weight adaptation
-        self.register_buffer('running_residual_vars',
-                             torch.ones(n_bands))
-        self.register_buffer('running_predictability',
-                             torch.zeros(n_bands))
-        self.register_buffer('adapt_step',
-                             torch.tensor(0, dtype=torch.long))
+        self.register_buffer("running_residual_vars", torch.ones(n_bands))
+        self.register_buffer("running_predictability", torch.zeros(n_bands))
+        self.register_buffer("adapt_step", torch.tensor(0, dtype=torch.long))
         self.adapt_momentum = 0.99
 
     def _init_basis(self, mode):
         """Initialize frequency basis."""
         with torch.no_grad():
-            if mode == 'dct':
-                basis = _dct_basis(self.embed_dim,
-                                   device=self.freq_basis.device,
-                                   dtype=self.freq_basis.dtype)
+            if mode == "dct":
+                basis = _dct_basis(
+                    self.embed_dim, device=self.freq_basis.device, dtype=self.freq_basis.dtype
+                )
                 self.freq_basis.copy_(basis)
-            elif mode == 'random':
-                M = torch.randn(self.embed_dim, self.embed_dim,
-                                device=self.freq_basis.device)
+            elif mode == "random":
+                M = torch.randn(self.embed_dim, self.embed_dim, device=self.freq_basis.device)
                 Q, _ = torch.linalg.qr(M)
                 self.freq_basis.copy_(Q)
             else:
-                raise ValueError(
-                    f"Unknown init mode: {mode}. Use 'dct' or 'random'.")
+                raise ValueError(f"Unknown init mode: {mode}. Use 'dct' or 'random'.")
 
     @torch.no_grad()
     def stiefel_retract(self):
@@ -266,7 +263,7 @@ class SpectralPredictiveCoding(nn.Module):
         """
         F_mat = self.freq_basis.data
         try:
-            U, S, Vh = torch.linalg.svd(F_mat, full_matrices=False)
+            U, _S, Vh = torch.linalg.svd(F_mat, full_matrices=False)
             F_mat.copy_(U @ Vh)
         except Exception:
             try:
@@ -297,7 +294,7 @@ class SpectralPredictiveCoding(nn.Module):
         Returns:
             list of (..., band_dim) tensors, one per band.
         """
-        D = z.size(-1)
+        z.size(-1)
         # Project onto frequency basis
         z_freq = z @ self.freq_basis  # (..., D) in frequency domain
 
@@ -364,8 +361,7 @@ class SpectralPredictiveCoding(nn.Module):
                 mom = self.adapt_momentum
                 # Update residual variances
                 new_vars = torch.tensor(band_residuals, device=z_pred.device)
-                self.running_residual_vars.mul_(mom).add_(
-                    (1 - mom) * new_vars)
+                self.running_residual_vars.mul_(mom).add_((1 - mom) * new_vars)
 
                 # Estimate predictability: 1 - residual/target_variance
                 target_vars = []
@@ -374,8 +370,7 @@ class SpectralPredictiveCoding(nn.Module):
                     target_vars.append(max(tv, self.eps))
                 target_var_t = torch.tensor(target_vars, device=z_pred.device)
                 predictability = (1.0 - new_vars / (target_var_t + self.eps)).clamp(0, 1)
-                self.running_predictability.mul_(mom).add_(
-                    (1 - mom) * predictability)
+                self.running_predictability.mul_(mom).add_((1 - mom) * predictability)
 
         # Diagnostics
         with torch.no_grad():
@@ -390,8 +385,8 @@ class SpectralPredictiveCoding(nn.Module):
             significant = (weights > 0.5).sum().item()
 
             # Spectral tilt: log(w_high / w_low) — measures preference
-            w_low = weights[:self.n_bands // 2].mean()
-            w_high = weights[self.n_bands // 2:].mean()
+            w_low = weights[: self.n_bands // 2].mean()
+            w_high = weights[self.n_bands // 2 :].mean()
             spectral_tilt = (w_high / (w_low + self.eps)).log().item()
 
             # Orthonormality of frequency basis
@@ -400,16 +395,16 @@ class SpectralPredictiveCoding(nn.Module):
             ortho_err = (gram - torch.eye(D, device=F_mat.device)).abs().max().item()
 
         info = {
-            'spc_total_loss': total_loss.item(),
-            'spc_uniform_loss': uniform_loss,
-            'spc_weight_entropy': weight_entropy.item(),
-            'spc_n_significant_bands': significant,
-            'spc_spectral_tilt': spectral_tilt,
-            'spc_ortho_error': ortho_err,
-            'spc_band_weights': weights.tolist(),
-            'spc_band_residuals': band_residuals,
-            'spc_band_losses': band_losses,
-            'spc_band_predictability': self.running_predictability.tolist(),
+            "spc_total_loss": total_loss.item(),
+            "spc_uniform_loss": uniform_loss,
+            "spc_weight_entropy": weight_entropy.item(),
+            "spc_n_significant_bands": significant,
+            "spc_spectral_tilt": spectral_tilt,
+            "spc_ortho_error": ortho_err,
+            "spc_band_weights": weights.tolist(),
+            "spc_band_residuals": band_residuals,
+            "spc_band_losses": band_losses,
+            "spc_band_predictability": self.running_predictability.tolist(),
         }
 
         return total_loss, info
@@ -425,11 +420,11 @@ class SpectralPredictiveCoding(nn.Module):
         Returns:
             dict with per-band variance, predictability, SNR, etc.
         """
-        D = z_pred.size(-1)
+        z_pred.size(-1)
         pred_bands = self._decompose_bands(z_pred)
         target_bands = self._decompose_bands(z_target)
 
-        analysis = {'n_bands': self.n_bands, 'band_dim': self.band_dim}
+        analysis = {"n_bands": self.n_bands, "band_dim": self.band_dim}
 
         pred_variances = []
         target_variances = []
@@ -448,16 +443,19 @@ class SpectralPredictiveCoding(nn.Module):
             predictabilities.append(pred_r2)
             snrs.append(tv / (rv + self.eps))
 
-        analysis['pred_variances'] = pred_variances
-        analysis['target_variances'] = target_variances
-        analysis['residual_variances'] = residual_variances
-        analysis['predictabilities'] = predictabilities
-        analysis['snrs'] = snrs
-        analysis['band_weights'] = self.get_band_weights().tolist()
-        analysis['spectral_tilt'] = (
-            math.log(sum(target_variances[self.n_bands//2:]) /
-                     (sum(target_variances[:self.n_bands//2]) + self.eps))
-            if sum(target_variances[:self.n_bands//2]) > 0 else 0.0
+        analysis["pred_variances"] = pred_variances
+        analysis["target_variances"] = target_variances
+        analysis["residual_variances"] = residual_variances
+        analysis["predictabilities"] = predictabilities
+        analysis["snrs"] = snrs
+        analysis["band_weights"] = self.get_band_weights().tolist()
+        analysis["spectral_tilt"] = (
+            math.log(
+                sum(target_variances[self.n_bands // 2 :])
+                / (sum(target_variances[: self.n_bands // 2]) + self.eps)
+            )
+            if sum(target_variances[: self.n_bands // 2]) > 0
+            else 0.0
         )
 
         return analysis
@@ -477,7 +475,7 @@ class SpectralPredictiveCoding(nn.Module):
         optimal = optimal.clamp(min=self.eps)
 
         # Soft update: don't jump to the optimum, move partially
-        current = self.get_band_weights()
+        self.get_band_weights()
         # Convert optimal to log-space
         optimal_normalized = optimal / optimal.sum() * self.n_bands
         optimal_normalized = optimal_normalized.clamp(min=self.min_weight)
@@ -489,5 +487,7 @@ class SpectralPredictiveCoding(nn.Module):
         self.log_band_weights.copy_(new_log)
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, n_bands={self.n_bands}, '
-                f'band_dim={self.band_dim}, min_weight={self.min_weight}')
+        return (
+            f"embed_dim={self.embed_dim}, n_bands={self.n_bands}, "
+            f"band_dim={self.band_dim}, min_weight={self.min_weight}"
+        )

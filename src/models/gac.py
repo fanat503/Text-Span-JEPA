@@ -94,11 +94,10 @@
 #  Works with: any JEPA variant, MAE, BEiT, masked language models,
 #  and any architecture that focuses capacity on a subset of dimensions.
 
-import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional, Tuple
+from torch import nn
 
 
 class GradientAllocatedCapacity(nn.Module):
@@ -134,16 +133,16 @@ class GradientAllocatedCapacity(nn.Module):
         self.warmup_steps = warmup_steps
 
         # Running statistics
-        self.register_buffer('running_grad_norms', torch.ones(embed_dim))
-        self.register_buffer('running_starved_fraction', torch.tensor(0.0))
-        self.register_buffer('total_gac_steps', torch.tensor(0, dtype=torch.long))
+        self.register_buffer("running_grad_norms", torch.ones(embed_dim))
+        self.register_buffer("running_starved_fraction", torch.tensor(0.0))
+        self.register_buffer("total_gac_steps", torch.tensor(0, dtype=torch.long))
 
     def forward(
         self,
         z_pred: torch.Tensor,
         grad_norms: torch.Tensor,
         step: int = 0,
-    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+    ) -> tuple[torch.Tensor, dict[str, any]]:
         """Compute GAC exploration loss.
 
         Args:
@@ -163,7 +162,7 @@ class GradientAllocatedCapacity(nn.Module):
 
         if warmup_factor < 1e-6:
             zero = torch.tensor(0.0, device=z_pred.device)
-            return zero, {'gac_loss': 0.0, 'gac_warmup': True}
+            return zero, {"gac_loss": 0.0, "gac_warmup": True}
 
         # Ensure grad_norms is (D,) per-dimension
         # If grad_norms has extra batch/time dims, aggregate to per-dim mean
@@ -177,8 +176,7 @@ class GradientAllocatedCapacity(nn.Module):
 
         # Update running gradient norms (EMA)
         with torch.no_grad():
-            self.running_grad_norms.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * gn)
+            self.running_grad_norms.mul_(self.ema_beta).add_((1 - self.ema_beta) * gn)
 
         # Identify starved dimensions: ||g_i|| < tau_grad
         starved_mask = (gn < self.tau_grad).float()  # (D,)
@@ -188,7 +186,7 @@ class GradientAllocatedCapacity(nn.Module):
         # Exploration bonus: γ · Σ_i max(0, τ - ||g_i||) · ||z_i||²
         # For starved dimensions, (τ - ||g_i||) > 0
         grad_deficit = F.relu(self.tau_grad - gn)  # (D,)
-        dim_energy = (z_flat ** 2).mean(dim=0)  # (D,) mean over batch
+        dim_energy = (z_flat**2).mean(dim=0)  # (D,) mean over batch
 
         # GAC loss: sum over starved dimensions
         loss = self.gamma * warmup_factor * (grad_deficit * dim_energy * starved_mask).sum()
@@ -199,15 +197,15 @@ class GradientAllocatedCapacity(nn.Module):
             self.total_gac_steps.add_(1)
 
         info = {
-            'gac_loss': loss.item(),
-            'gac_n_starved': int(n_starved),
-            'gac_starved_fraction': starved_fraction,
-            'gac_warmup_factor': warmup_factor,
-            'gac_mean_grad_norm': grad_norms.mean().item(),
-            'gac_min_grad_norm': grad_norms.min().item() if D > 0 else 0.0,
-            'gac_max_grad_norm': grad_norms.max().item() if D > 0 else 0.0,
-            'gac_running_starved_fraction': self.running_starved_fraction.item(),
-            'gac_warmup': False,
+            "gac_loss": loss.item(),
+            "gac_n_starved": int(n_starved),
+            "gac_starved_fraction": starved_fraction,
+            "gac_warmup_factor": warmup_factor,
+            "gac_mean_grad_norm": grad_norms.mean().item(),
+            "gac_min_grad_norm": grad_norms.min().item() if D > 0 else 0.0,
+            "gac_max_grad_norm": grad_norms.max().item() if D > 0 else 0.0,
+            "gac_running_starved_fraction": self.running_starved_fraction.item(),
+            "gac_warmup": False,
         }
 
         return loss, info
@@ -226,9 +224,9 @@ class GradientAllocatedCapacity(nn.Module):
         """
         D = z_pred.size(-1)
         z_flat = z_pred.reshape(-1, D)
-        dim_energy = (z_flat ** 2).mean(dim=0).sqrt()  # RMS per dim
+        dim_energy = (z_flat**2).mean(dim=0).sqrt()  # RMS per dim
 
-        starved = (grad_norms < self.tau_grad)
+        starved = grad_norms < self.tau_grad
         deficit = F.relu(self.tau_grad - grad_norms)
 
         bounds = self.gamma * deficit * 2 * dim_energy  # (D,)
@@ -248,10 +246,12 @@ class GradientAllocatedCapacity(nn.Module):
         """
         active = grad_norms > 1e-10
         if not active.any():
-            return float('inf')
+            return float("inf")
         ratios = self.gamma * self.tau_grad / grad_norms[active]
         return ratios.max().item()
 
     def extra_repr(self) -> str:
-        return (f'embed_dim={self.embed_dim}, gamma={self.gamma}, '
-                f'tau_grad={self.tau_grad}, warmup_steps={self.warmup_steps}')
+        return (
+            f"embed_dim={self.embed_dim}, gamma={self.gamma}, "
+            f"tau_grad={self.tau_grad}, warmup_steps={self.warmup_steps}"
+        )

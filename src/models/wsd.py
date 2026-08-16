@@ -124,9 +124,9 @@
 #    - ema_beta: EMA momentum for target covariance (default 0.99)
 
 import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 
 
 class WorkspaceSyncDrift(nn.Module):
@@ -146,8 +146,7 @@ class WorkspaceSyncDrift(nn.Module):
         eps: numerical stability constant (default 1e-6).
     """
 
-    def __init__(self, embed_dim=768, k=None, sync_interval=100,
-                 ema_beta=0.99, eps=1e-6):
+    def __init__(self, embed_dim=768, k=None, sync_interval=100, ema_beta=0.99, eps=1e-6):
         super().__init__()
         self.embed_dim = embed_dim
         self.k = k or max(embed_dim // 10, 1)
@@ -158,17 +157,15 @@ class WorkspaceSyncDrift(nn.Module):
         assert 1 <= self.k <= embed_dim
 
         # EMA target covariance
-        self.register_buffer('target_cov',
-                             torch.eye(embed_dim) * 0.01)
+        self.register_buffer("target_cov", torch.eye(embed_dim) * 0.01)
         # Cached target workspace Q_target
-        self.register_buffer('target_Q',
-                             torch.zeros(embed_dim, self.k))
+        self.register_buffer("target_Q", torch.zeros(embed_dim, self.k))
         with torch.no_grad():
-            self.target_Q[:self.k, :self.k] = torch.eye(self.k)
+            self.target_Q[: self.k, : self.k] = torch.eye(self.k)
 
-        self.register_buffer('is_initialized', torch.tensor(False))
-        self.register_buffer('step_count', torch.tensor(0, dtype=torch.long))
-        self.register_buffer('running_drift', torch.tensor(0.0))
+        self.register_buffer("is_initialized", torch.tensor(False))
+        self.register_buffer("step_count", torch.tensor(0, dtype=torch.long))
+        self.register_buffer("running_drift", torch.tensor(0.0))
 
     @torch.no_grad()
     def update_target_cov(self, h_target):
@@ -201,9 +198,9 @@ class WorkspaceSyncDrift(nn.Module):
         Called every sync_interval steps.
         """
         try:
-            eigenvalues, eigenvectors = torch.linalg.eigh(self.target_cov)
+            _eigenvalues, eigenvectors = torch.linalg.eigh(self.target_cov)
             # eigh returns ascending order; take top-k
-            self.target_Q.copy_(eigenvectors[:, -self.k:])
+            self.target_Q.copy_(eigenvectors[:, -self.k :])
         except Exception:
             pass  # Keep previous Q_target
 
@@ -219,7 +216,7 @@ class WorkspaceSyncDrift(nn.Module):
             drift_loss: scalar tensor (differentiable w.r.t. Q_workspace).
             info: dict with diagnostics.
         """
-        D = Q_workspace.size(0)
+        Q_workspace.size(0)
         k = min(Q_workspace.size(1), self.k)
         self.step_count.fill_(step)
 
@@ -260,14 +257,16 @@ class WorkspaceSyncDrift(nn.Module):
                 spectral_align = 1.0
 
         info = {
-            'wsd_drift': drift.item(),
-            'wsd_drift_sq': drift_sq.item(),
-            'wsd_running_drift': self.running_drift.item(),
-            'wsd_overlap': overlap,
-            'wsd_spectral_alignment': spectral_align,
-            'wsd_max_principal_angle': max(principal_angles) if principal_angles else 0.0,
-            'wsd_mean_principal_angle': sum(principal_angles) / len(principal_angles) if principal_angles else 0.0,
-            'wsd_k': k,
+            "wsd_drift": drift.item(),
+            "wsd_drift_sq": drift_sq.item(),
+            "wsd_running_drift": self.running_drift.item(),
+            "wsd_overlap": overlap,
+            "wsd_spectral_alignment": spectral_align,
+            "wsd_max_principal_angle": max(principal_angles) if principal_angles else 0.0,
+            "wsd_mean_principal_angle": (
+                sum(principal_angles) / len(principal_angles) if principal_angles else 0.0
+            ),
+            "wsd_k": k,
         }
 
         # Constructive steady-state bound (Reviewer R9 response):
@@ -284,18 +283,20 @@ class WorkspaceSyncDrift(nn.Module):
             steady_state_error = nu_max_est / max(lambda_wsd, 1e-8)
             # Time constant: 1/λ steps to converge
             convergence_time = 1.0 / max(lambda_wsd, 1e-8)
-            info['wsd_steady_state_error'] = steady_state_error
-            info['wsd_nu_max_estimate'] = nu_max_est
-            info['wsd_convergence_time'] = convergence_time
-            info['wsd_lambda_estimate'] = lambda_wsd
+            info["wsd_steady_state_error"] = steady_state_error
+            info["wsd_nu_max_estimate"] = nu_max_est
+            info["wsd_convergence_time"] = convergence_time
+            info["wsd_lambda_estimate"] = lambda_wsd
         else:
-            info['wsd_steady_state_error'] = 0.0
-            info['wsd_nu_max_estimate'] = 0.0
-            info['wsd_convergence_time'] = 0.0
-            info['wsd_lambda_estimate'] = 0.0
+            info["wsd_steady_state_error"] = 0.0
+            info["wsd_nu_max_estimate"] = 0.0
+            info["wsd_convergence_time"] = 0.0
+            info["wsd_lambda_estimate"] = 0.0
 
         return drift_loss, info
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, k={self.k}, '
-                f'sync_interval={self.sync_interval}, ema_beta={self.ema_beta}')
+        return (
+            f"embed_dim={self.embed_dim}, k={self.k}, "
+            f"sync_interval={self.sync_interval}, ema_beta={self.ema_beta}"
+        )

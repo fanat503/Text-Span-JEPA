@@ -5,6 +5,7 @@
 
 import os
 import random
+
 import numpy as np
 import torch
 
@@ -21,7 +22,7 @@ def seed_everything(seed: int, deterministic: bool = False) -> int:
         The seed that was set (for logging)
     """
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)

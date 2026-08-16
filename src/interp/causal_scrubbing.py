@@ -20,10 +20,9 @@
 # - Ablation (zeroing) confounds "F is important" with "F has nonzero mean"
 # - Scrubbing controls for the statistical effect of F's distribution
 
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import math
 
 
 class CausalScrubber:
@@ -39,7 +38,7 @@ class CausalScrubber:
     matter more than you thought).
     """
 
-    def __init__(self, model, device='cpu'):
+    def __init__(self, model, device="cpu"):
         """
         Args:
             model: Text-Span JEPA model (or any model with .encoder)
@@ -49,8 +48,7 @@ class CausalScrubber:
         self.device = device
 
     @torch.no_grad()
-    def scrub_and_evaluate(self, input_ids, hypothesis_fn, behavior_fn,
-                           n_resamples=10):
+    def scrub_and_evaluate(self, input_ids, hypothesis_fn, behavior_fn, n_resamples=10):
         """Scrub irrelevant features and test if behavior is preserved.
 
         Args:
@@ -93,17 +91,19 @@ class CausalScrubber:
 
         # Results
         mean_scrubbed = sum(scrubbed_behaviors) / len(scrubbed_behaviors)
-        behavior_preserved = abs(mean_scrubbed - baseline_behavior) / max(abs(baseline_behavior), 1e-10)
+        behavior_preserved = abs(mean_scrubbed - baseline_behavior) / max(
+            abs(baseline_behavior), 1e-10
+        )
         # Higher preservation = hypothesis correct (scrubbed features are irrelevant)
         # Lower preservation = hypothesis wrong (scrubbed features matter)
 
         return {
-            'baseline_behavior': baseline_behavior,
-            'scrubbed_behavior_mean': mean_scrubbed,
-            'scrubbed_behavior_std': _std(scrubbed_behaviors),
-            'behavior_preservation_ratio': behavior_preserved,
-            'hypothesis_valid': behavior_preserved > 0.8,
-            'n_resamples': n_resamples,
+            "baseline_behavior": baseline_behavior,
+            "scrubbed_behavior_mean": mean_scrubbed,
+            "scrubbed_behavior_std": _std(scrubbed_behaviors),
+            "behavior_preservation_ratio": behavior_preserved,
+            "hypothesis_valid": behavior_preserved > 0.8,
+            "n_resamples": n_resamples,
         }
 
     def _behavior_from_representations(self, h_scrubbed, behavior_fn, input_ids):
@@ -122,8 +122,9 @@ class CausalScrubber:
             return 0.0
 
     @torch.no_grad()
-    def compare_scrubbing(self, jepa_model, baseline_model, input_ids,
-                          hypothesis_fn, behavior_fn, n_resamples=10):
+    def compare_scrubbing(
+        self, jepa_model, baseline_model, input_ids, hypothesis_fn, behavior_fn, n_resamples=10
+    ):
         """Compare causal scrubbing results between JEPA and baseline.
 
         THE KEY COMPARISON: if JEPA's behavior is more preserved under
@@ -153,13 +154,13 @@ class CausalScrubber:
         )
 
         return {
-            'jepa_preservation': jepa_result['behavior_preservation_ratio'],
-            'baseline_preservation': baseline_result['behavior_preservation_ratio'],
-            'jepa_hypothesis_valid': jepa_result['hypothesis_valid'],
-            'baseline_hypothesis_valid': baseline_result['hypothesis_valid'],
-            'jepa_cleaner_causal_structure': (
-                jepa_result['behavior_preservation_ratio'] >
-                baseline_result['behavior_preservation_ratio']
+            "jepa_preservation": jepa_result["behavior_preservation_ratio"],
+            "baseline_preservation": baseline_result["behavior_preservation_ratio"],
+            "jepa_hypothesis_valid": jepa_result["hypothesis_valid"],
+            "baseline_hypothesis_valid": baseline_result["hypothesis_valid"],
+            "jepa_cleaner_causal_structure": (
+                jepa_result["behavior_preservation_ratio"]
+                > baseline_result["behavior_preservation_ratio"]
             ),
         }
 
@@ -182,7 +183,7 @@ class FeatureHypothesis:
             B, T, D = representations.shape
             flat = representations.reshape(B * T, D)
             # SVD
-            U, S, Vh = torch.linalg.svd(flat, full_matrices=False)
+            _U, _S, Vh = torch.linalg.svd(flat, full_matrices=False)
             V = Vh.T  # Right singular vectors
 
             # Top-n_relevant_dims components are "relevant"
@@ -200,13 +201,15 @@ class FeatureHypothesis:
             proj_r = proj_relevant.reshape(B, T, D)
             proj_i = proj_irrelevant.reshape(B, T, D)
 
-            relevant_mask = (proj_r.abs() > proj_i.abs())
+            relevant_mask = proj_r.abs() > proj_i.abs()
             irrelevant_mask = ~relevant_mask
 
             return relevant_mask, irrelevant_mask
         except Exception:
             B, T, D = representations.shape
-            return torch.ones_like(representations, dtype=torch.bool), torch.zeros_like(representations, dtype=torch.bool)
+            return torch.ones_like(representations, dtype=torch.bool), torch.zeros_like(
+                representations, dtype=torch.bool
+            )
 
     @staticmethod
     def position_based_hypothesis(representations, keep_fraction=0.5):
@@ -252,8 +255,9 @@ class InterventionPredictabilityScorer:
 
     @staticmethod
     @torch.no_grad()
-    def compute_predictability(model, input_ids, direction, probe_fn,
-                              scales=(-3, -2, -1, 0, 1, 2, 3), device='cpu'):
+    def compute_predictability(
+        model, input_ids, direction, probe_fn, scales=(-3, -2, -1, 0, 1, 2, 3), device="cpu"
+    ):
         """Compute predictability score for a direction.
 
         Args:
@@ -287,9 +291,9 @@ class InterventionPredictabilityScorer:
 
         if probes_t.std() == 0:
             return {
-                'predictability': 0.0,
-                'monotonicity': 0.0,
-                'probe_values': probe_values,
+                "predictability": 0.0,
+                "monotonicity": 0.0,
+                "probe_values": probe_values,
             }
 
         # Spearman
@@ -309,9 +313,9 @@ class InterventionPredictabilityScorer:
             mono = max(signs.mean().item(), (1 - signs.mean()).item())
 
         return {
-            'predictability': abs(spearman),
-            'monotonicity': mono,
-            'probe_values': probe_values,
+            "predictability": abs(spearman),
+            "monotonicity": mono,
+            "probe_values": probe_values,
         }
 
 
@@ -321,4 +325,4 @@ def _std(values):
         return 0.0
     mean = sum(values) / len(values)
     var = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
-    return var ** 0.5
+    return var**0.5

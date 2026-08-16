@@ -128,11 +128,12 @@
 #  The only requirement: the model must produce per-position
 #  predictions (z_pred[t] for each position t).
 
+from __future__ import annotations
+
 import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, Optional, Tuple
+from torch import nn
 
 
 class CrossMaskConsistency(nn.Module):
@@ -157,9 +158,9 @@ class CrossMaskConsistency(nn.Module):
     def __init__(
         self,
         embed_dim: int = 768,
-        second_mask_ratio: Optional[float] = None,
+        second_mask_ratio: float | None = None,
         min_overlap_ratio: float = 0.2,
-        mode: str = 'interval',
+        mode: str = "interval",
         interval: int = 10,
         stop_grad_primary: bool = True,
     ):
@@ -172,9 +173,9 @@ class CrossMaskConsistency(nn.Module):
         self.stop_grad_primary = stop_grad_primary
 
         # Running statistics for monitoring
-        self.register_buffer('running_consistency', torch.tensor(0.0))
-        self.register_buffer('running_overlap_ratio', torch.tensor(0.0))
-        self.register_buffer('total_cmc_steps', torch.tensor(0, dtype=torch.long))
+        self.register_buffer("running_consistency", torch.tensor(0.0))
+        self.register_buffer("running_overlap_ratio", torch.tensor(0.0))
+        self.register_buffer("total_cmc_steps", torch.tensor(0, dtype=torch.long))
 
     def should_compute(self, step: int) -> bool:
         """Whether to compute CMC at this training step.
@@ -185,11 +186,11 @@ class CrossMaskConsistency(nn.Module):
         Returns:
             True if CMC should be computed.
         """
-        if self.mode == 'always':
+        if self.mode == "always":
             return True
-        elif self.mode == 'interval':
+        elif self.mode == "interval":
             return step % self.interval == 0
-        elif self.mode == 'reuse_encoder':
+        elif self.mode == "reuse_encoder":
             return True  # cheap enough to always compute
         return False
 
@@ -214,9 +215,9 @@ class CrossMaskConsistency(nn.Module):
         seq_len: int,
         batch_size: int,
         mask_ratio: float,
-        span_length_range: Tuple[int, int] = (3, 10),
-        device: torch.device = torch.device('cpu'),
-        rng: Optional[torch.Generator] = None,
+        span_length_range: tuple[int, int] = (3, 10),
+        device: torch.device = torch.device("cpu"),
+        rng: torch.Generator | None = None,
     ) -> torch.Tensor:
         """Generate a second span-based mask for CMC.
 
@@ -258,7 +259,7 @@ class CrossMaskConsistency(nn.Module):
         z_pred_primary: torch.Tensor,
         z_pred_secondary: torch.Tensor,
         overlap_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+    ) -> tuple[torch.Tensor, dict[str, any]]:
         """Compute Cross-Mask Consistency loss.
 
         Args:
@@ -270,26 +271,26 @@ class CrossMaskConsistency(nn.Module):
             loss: scalar tensor (≥ 0).
             info: dict with diagnostics.
         """
-        B, T, D = z_pred_primary.shape
+        B, T, _D = z_pred_primary.shape
 
         # Count overlap positions
         overlap_count = overlap_mask.sum()
-        total_masked_primary = (overlap_mask.sum(dim=1) > 0).sum()  # batches with overlap
+        (overlap_mask.sum(dim=1) > 0).sum()  # batches with overlap
 
         if overlap_count == 0:
             # No overlap — skip CMC (return zero loss)
             zero = torch.tensor(0.0, device=z_pred_primary.device)
             return zero, {
-                'cmc_loss': 0.0,
-                'cmc_overlap_count': 0,
-                'cmc_overlap_ratio': 0.0,
-                'cmc_per_position_loss': 0.0,
-                'cmc_max_inconsistency': 0.0,
-                'cmc_skipped': True,
+                "cmc_loss": 0.0,
+                "cmc_overlap_count": 0,
+                "cmc_overlap_ratio": 0.0,
+                "cmc_per_position_loss": 0.0,
+                "cmc_max_inconsistency": 0.0,
+                "cmc_skipped": True,
             }
 
         # Check minimum overlap ratio
-        avg_overlap = overlap_count.float() / max(B, 1)
+        overlap_count.float() / max(B, 1)
         primary_masked = (z_pred_primary.abs().sum(dim=-1) > 0).float()  # approximate
         overlap_ratio = overlap_count.float() / max(primary_masked.sum(), 1)
 
@@ -297,13 +298,13 @@ class CrossMaskConsistency(nn.Module):
             # Insufficient overlap — skip (but still log)
             zero = torch.tensor(0.0, device=z_pred_primary.device)
             return zero, {
-                'cmc_loss': 0.0,
-                'cmc_overlap_count': overlap_count.item(),
-                'cmc_overlap_ratio': overlap_ratio.item(),
-                'cmc_per_position_loss': 0.0,
-                'cmc_max_inconsistency': 0.0,
-                'cmc_skipped': True,
-                'cmc_skip_reason': 'insufficient_overlap',
+                "cmc_loss": 0.0,
+                "cmc_overlap_count": overlap_count.item(),
+                "cmc_overlap_ratio": overlap_ratio.item(),
+                "cmc_per_position_loss": 0.0,
+                "cmc_max_inconsistency": 0.0,
+                "cmc_skipped": True,
+                "cmc_skip_reason": "insufficient_overlap",
             }
 
         # Optionally stop gradient through primary prediction
@@ -316,7 +317,7 @@ class CrossMaskConsistency(nn.Module):
 
         # Compute per-position inconsistency: ||z1[t] - z2[t]||²
         diff = z1 - z2  # (B, T, D)
-        per_pos_sq = (diff ** 2).sum(dim=-1)  # (B, T)
+        per_pos_sq = (diff**2).sum(dim=-1)  # (B, T)
 
         # Mask to overlap positions only
         overlap_float = overlap_mask.float()  # (B, T)
@@ -345,13 +346,13 @@ class CrossMaskConsistency(nn.Module):
             self.total_cmc_steps.add_(1)
 
         info = {
-            'cmc_loss': loss.item(),
-            'cmc_overlap_count': overlap_count.item(),
-            'cmc_overlap_ratio': mean_overlap_ratio.item(),
-            'cmc_per_position_loss': per_pos_loss.item(),
-            'cmc_max_inconsistency': max_inconsistency.item(),
-            'cmc_skipped': False,
-            'cmc_running_consistency': self.running_consistency.item(),
+            "cmc_loss": loss.item(),
+            "cmc_overlap_count": overlap_count.item(),
+            "cmc_overlap_ratio": mean_overlap_ratio.item(),
+            "cmc_per_position_loss": per_pos_loss.item(),
+            "cmc_max_inconsistency": max_inconsistency.item(),
+            "cmc_skipped": False,
+            "cmc_running_consistency": self.running_consistency.item(),
         }
 
         return loss, info
@@ -393,8 +394,10 @@ class CrossMaskConsistency(nn.Module):
         return cmc_loss / 2.0 + jepa_loss
 
     def extra_repr(self) -> str:
-        return (f'embed_dim={self.embed_dim}, mode={self.mode}, '
-                f'interval={self.interval}, '
-                f'second_mask_ratio={self.second_mask_ratio}, '
-                f'min_overlap_ratio={self.min_overlap_ratio}, '
-                f'stop_grad_primary={self.stop_grad_primary}')
+        return (
+            f"embed_dim={self.embed_dim}, mode={self.mode}, "
+            f"interval={self.interval}, "
+            f"second_mask_ratio={self.second_mask_ratio}, "
+            f"min_overlap_ratio={self.min_overlap_ratio}, "
+            f"stop_grad_primary={self.stop_grad_primary}"
+        )

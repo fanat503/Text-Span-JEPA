@@ -15,9 +15,9 @@
 # - Bayesian posterior probability of JEPA > baseline
 
 import math
-import torch
+
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+import torch
 
 
 class BootstrapCI:
@@ -32,8 +32,7 @@ class BootstrapCI:
     """
 
     @staticmethod
-    def compute(metric_fn, data, n_bootstrap=1000, alpha=0.05,
-                seed=42, return_samples=False):
+    def compute(metric_fn, data, n_bootstrap=1000, alpha=0.05, seed=42, return_samples=False):
         """Compute bootstrap CI.
 
         Args:
@@ -82,36 +81,32 @@ class BootstrapCI:
                 val = metric_fn(data)
                 if isinstance(val, torch.Tensor):
                     val = val.item()
-                return {'mean': val, 'ci_lower': val, 'ci_upper': val,
-                        'std': 0.0, 'n_bootstrap': 1}
+                return {"mean": val, "ci_lower": val, "ci_upper": val, "std": 0.0, "n_bootstrap": 1}
             except Exception:
-                return {'mean': 0.0, 'ci_lower': 0.0, 'ci_upper': 0.0,
-                        'std': 0.0, 'n_bootstrap': 0}
+                return {"mean": 0.0, "ci_lower": 0.0, "ci_upper": 0.0, "std": 0.0, "n_bootstrap": 0}
 
         if not bootstrap_values:
-            return {'mean': 0.0, 'ci_lower': 0.0, 'ci_upper': 0.0,
-                    'std': 0.0, 'n_bootstrap': 0}
+            return {"mean": 0.0, "ci_lower": 0.0, "ci_upper": 0.0, "std": 0.0, "n_bootstrap": 0}
 
         values = np.array(bootstrap_values)
         lower = np.percentile(values, 100 * alpha / 2)
         upper = np.percentile(values, 100 * (1 - alpha / 2))
 
         result = {
-            'mean': float(values.mean()),
-            'ci_lower': float(lower),
-            'ci_upper': float(upper),
-            'std': float(values.std()),
-            'n_bootstrap': len(bootstrap_values),
+            "mean": float(values.mean()),
+            "ci_lower": float(lower),
+            "ci_upper": float(upper),
+            "std": float(values.std()),
+            "n_bootstrap": len(bootstrap_values),
         }
 
         if return_samples:
-            result['samples'] = bootstrap_values
+            result["samples"] = bootstrap_values
 
         return result
 
     @staticmethod
-    def compare(metric_fn, data_a, data_b, n_bootstrap=1000,
-                alpha=0.05, seed=42):
+    def compare(metric_fn, data_a, data_b, n_bootstrap=1000, alpha=0.05, seed=42):
         """Bootstrap comparison: is metric(data_a) significantly different
         from metric(data_b)?
 
@@ -137,10 +132,10 @@ class BootstrapCI:
                 except Exception:
                     continue
         else:
-            return {'significant': False, 'p_value': 1.0}
+            return {"significant": False, "p_value": 1.0}
 
         if not diffs:
-            return {'significant': False, 'p_value': 1.0}
+            return {"significant": False, "p_value": 1.0}
 
         diffs = np.array(diffs)
         lower = np.percentile(diffs, 100 * alpha / 2)
@@ -157,12 +152,12 @@ class BootstrapCI:
         p_value = max(p_value, 1.0 / n_bootstrap)  # Floor
 
         return {
-            'mean_diff': float(diffs.mean()),
-            'ci_lower': float(lower),
-            'ci_upper': float(upper),
-            'significant': significant,
-            'p_value': float(p_value),
-            'n_bootstrap': len(diffs),
+            "mean_diff": float(diffs.mean()),
+            "ci_lower": float(lower),
+            "ci_upper": float(upper),
+            "significant": significant,
+            "p_value": float(p_value),
+            "n_bootstrap": len(diffs),
         }
 
 
@@ -201,10 +196,10 @@ class PairedPermutationTest:
         N = len(values_a)
         if N != len(values_b) or N < 2:
             return {
-                'p_value': 1.0,
-                'effect_size': 0.0,
-                'significant': False,
-                'mean_diff': 0.0,
+                "p_value": 1.0,
+                "effect_size": 0.0,
+                "significant": False,
+                "mean_diff": 0.0,
             }
 
         # Observed difference
@@ -229,12 +224,12 @@ class PairedPermutationTest:
         cohens_d = observed_diff / pooled_std if pooled_std > 0 else 0.0
 
         return {
-            'p_value': float(p_value),
-            'effect_size': float(cohens_d),
-            'significant': p_value < 0.05,
-            'mean_diff': float(observed_diff),
-            'n_observations': N,
-            'n_permutations': n_permutations,
+            "p_value": float(p_value),
+            "effect_size": float(cohens_d),
+            "significant": p_value < 0.05,
+            "mean_diff": float(observed_diff),
+            "n_observations": N,
+            "n_permutations": n_permutations,
         }
 
 
@@ -271,7 +266,7 @@ class MultipleComparisonCorrection:
         """
         n = len(p_values)
         if n == 0:
-            return {'corrected': [], 'significant': [], 'threshold': alpha}
+            return {"corrected": [], "significant": [], "threshold": alpha}
 
         # Sort p-values
         indexed = sorted(enumerate(p_values), key=lambda x: x[1])
@@ -295,11 +290,11 @@ class MultipleComparisonCorrection:
                 significant.append(indexed[i][0])
 
         return {
-            'corrected': corrected,
-            'significant': sorted(significant),
-            'threshold': alpha,
-            'n_significant': len(significant),
-            'n_total': n,
+            "corrected": corrected,
+            "significant": sorted(significant),
+            "threshold": alpha,
+            "n_significant": len(significant),
+            "n_total": n,
         }
 
 
@@ -400,7 +395,7 @@ class BayesianComparison:
 
         na, nb = len(a), len(b)
         if na < 2 or nb < 2:
-            return {'prob_a_greater': 0.5, 'credible_lower': 0, 'credible_upper': 0}
+            return {"prob_a_greater": 0.5, "credible_lower": 0, "credible_upper": 0}
 
         boot_diffs = []
         for _ in range(n_bootstrap):
@@ -413,13 +408,13 @@ class BayesianComparison:
         prob = (diffs > 0).mean()
 
         return {
-            'prob_a_greater_b': float(prob),
-            'prob_b_greater_a': float(1 - prob),
-            'mean_diff': float(diffs.mean()),
-            'credible_lower': float(np.percentile(diffs, 2.5)),
-            'credible_upper': float(np.percentile(diffs, 97.5)),
-            'n_bootstrap': n_bootstrap,
-            'decision': 'A > B' if prob > 0.95 else ('B > A' if prob < 0.05 else 'Inconclusive'),
+            "prob_a_greater_b": float(prob),
+            "prob_b_greater_a": float(1 - prob),
+            "mean_diff": float(diffs.mean()),
+            "credible_lower": float(np.percentile(diffs, 2.5)),
+            "credible_upper": float(np.percentile(diffs, 97.5)),
+            "n_bootstrap": n_bootstrap,
+            "decision": "A > B" if prob > 0.95 else ("B > A" if prob < 0.05 else "Inconclusive"),
         }
 
 
@@ -437,8 +432,14 @@ class MetricComparisonReport:
     """
 
     @staticmethod
-    def generate(metric_names, jepa_values_dict, baseline_values_dict,
-                 n_bootstrap=5000, n_permutations=10000, alpha=0.05):
+    def generate(
+        metric_names,
+        jepa_values_dict,
+        baseline_values_dict,
+        n_bootstrap=5000,
+        n_permutations=10000,
+        alpha=0.05,
+    ):
         """Generate full statistical comparison report.
 
         Args:
@@ -466,12 +467,12 @@ class MetricComparisonReport:
             jepa_ci = BootstrapCI.compute(
                 lambda d: d.mean() if isinstance(d, torch.Tensor) else np.mean(d),
                 jepa_vals if isinstance(jepa_vals, torch.Tensor) else torch.tensor(jepa_vals),
-                n_bootstrap=min(n_bootstrap, 2000)
+                n_bootstrap=min(n_bootstrap, 2000),
             )
             base_ci = BootstrapCI.compute(
                 lambda d: d.mean() if isinstance(d, torch.Tensor) else np.mean(d),
                 base_vals if isinstance(base_vals, torch.Tensor) else torch.tensor(base_vals),
-                n_bootstrap=min(n_bootstrap, 2000)
+                n_bootstrap=min(n_bootstrap, 2000),
             )
 
             # Effect size
@@ -488,18 +489,20 @@ class MetricComparisonReport:
             )
 
             results[name] = {
-                'jepa_mean': jepa_ci['mean'],
-                'jepa_ci': (jepa_ci['ci_lower'], jepa_ci['ci_upper']),
-                'baseline_mean': base_ci['mean'],
-                'baseline_ci': (base_ci['ci_lower'], base_ci['ci_upper']),
-                'effect_size_d': d,
-                'effect_size_label': 'large' if abs(d) > 0.8 else ('medium' if abs(d) > 0.5 else 'small'),
-                'p_value': perm['p_value'],
-                'prob_jepa_better': bayes['prob_a_greater_b'],
-                'mean_diff': jepa_ci['mean'] - base_ci['mean'],
+                "jepa_mean": jepa_ci["mean"],
+                "jepa_ci": (jepa_ci["ci_lower"], jepa_ci["ci_upper"]),
+                "baseline_mean": base_ci["mean"],
+                "baseline_ci": (base_ci["ci_lower"], base_ci["ci_upper"]),
+                "effect_size_d": d,
+                "effect_size_label": (
+                    "large" if abs(d) > 0.8 else ("medium" if abs(d) > 0.5 else "small")
+                ),
+                "p_value": perm["p_value"],
+                "prob_jepa_better": bayes["prob_a_greater_b"],
+                "mean_diff": jepa_ci["mean"] - base_ci["mean"],
             }
 
-            raw_p_values.append(perm['p_value'])
+            raw_p_values.append(perm["p_value"])
 
         # Multiple comparison correction
         if raw_p_values:
@@ -508,22 +511,27 @@ class MetricComparisonReport:
 
             metric_list = list(results.keys())
             for i, name in enumerate(metric_list):
-                results[name]['p_value_bh'] = bh['corrected'][i]
-                results[name]['p_value_bonferroni'] = bonf[i]
-                results[name]['significant_bh'] = name in [metric_list[j] for j in bh['significant']]
-                results[name]['significant_bonferroni'] = bonf[i] < alpha
+                results[name]["p_value_bh"] = bh["corrected"][i]
+                results[name]["p_value_bonferroni"] = bonf[i]
+                results[name]["significant_bh"] = name in [
+                    metric_list[j] for j in bh["significant"]
+                ]
+                results[name]["significant_bonferroni"] = bonf[i] < alpha
 
         # Summary
-        n_significant_bh = sum(1 for v in results.values() if v.get('significant_bh', False))
-        n_large_effect = sum(1 for v in results.values() if v.get('effect_size_label') == 'large')
+        n_significant_bh = sum(1 for v in results.values() if v.get("significant_bh", False))
+        n_large_effect = sum(1 for v in results.values() if v.get("effect_size_label") == "large")
 
-        results['_summary'] = {
-            'n_metrics': len(results) - 1,  # minus _summary
-            'n_significant_bh': n_significant_bh,
-            'n_large_effect': n_large_effect,
-            'alpha': alpha,
-            'jepa_wins': sum(1 for v in results.values()
-                            if isinstance(v, dict) and v.get('prob_jepa_better', 0) > 0.95),
+        results["_summary"] = {
+            "n_metrics": len(results) - 1,  # minus _summary
+            "n_significant_bh": n_significant_bh,
+            "n_large_effect": n_large_effect,
+            "alpha": alpha,
+            "jepa_wins": sum(
+                1
+                for v in results.values()
+                if isinstance(v, dict) and v.get("prob_jepa_better", 0) > 0.95
+            ),
         }
 
         return results

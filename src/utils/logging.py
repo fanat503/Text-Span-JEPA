@@ -3,14 +3,11 @@
 # Logging utilities — from I-JEPA (Assran et al., CVPR 2023)
 # CSVLogger pattern from src/utils/logging.py in I-JEPA repo
 
-import csv
-import os
-import logging
 
 import torch
 
 
-class AverageMeter(object):
+class AverageMeter:
     """computes and stores the average and current value — from I-JEPA."""
 
     def __init__(self):
@@ -19,8 +16,8 @@ class AverageMeter(object):
     def reset(self):
         self.val = 0
         self.avg = 0
-        self.max = float('-inf')
-        self.min = float('inf')
+        self.max = float("-inf")
+        self.min = float("inf")
         self.sum = 0
         self.count = 0
 
@@ -36,24 +33,24 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-class CSVLogger(object):
+class CSVLogger:
     """CSV logger — from I-JEPA src/utils/logging.py."""
 
     def __init__(self, fname, *argv):
         self.fname = fname
         self.types = []
-        with open(self.fname, '+a') as f:
+        with open(self.fname, "+a") as f:
             for i, v in enumerate(argv, 1):
                 self.types.append(v[0])
                 if i < len(argv):
-                    print(v[1], end=',', file=f)
+                    print(v[1], end=",", file=f)
                 else:
-                    print(v[1], end='\n', file=f)
+                    print(v[1], end="\n", file=f)
 
     def log(self, *argv):
-        with open(self.fname, '+a') as f:
+        with open(self.fname, "+a") as f:
             for i, tv in enumerate(zip(self.types, argv), 1):
-                end = ',' if i < len(argv) else '\n'
+                end = "," if i < len(argv) else "\n"
                 print(tv[0] % tv[1], end=end, file=f)
 
 
@@ -63,13 +60,13 @@ def grad_logger(named_params):
     stats.first_layer = None
     stats.last_layer = None
     for n, p in named_params:
-        if (p.grad is not None) and not (n.endswith('.bias') or len(p.shape) == 1):
+        if (p.grad is not None) and not (n.endswith(".bias") or len(p.shape) == 1):
             grad_norm = float(torch.norm(p.grad.data))
             stats.update(grad_norm)
-            if 'qkv' in n:
+            if "qkv" in n:
                 stats.last_layer = grad_norm
                 if stats.first_layer is None:
                     stats.first_layer = grad_norm
     if stats.first_layer is None or stats.last_layer is None:
-        stats.first_layer = stats.last_layer = 0.
+        stats.first_layer = stats.last_layer = 0.0
     return stats

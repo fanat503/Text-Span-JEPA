@@ -2,9 +2,10 @@
 # Licensed under the Apache License, Version 2.0
 """Tests for Spectral Transport Alignment (STA) — mechanism #13."""
 
+import math
+
 import pytest
 import torch
-import math
 
 from src.models.sta import SpectralTransportAlignment
 
@@ -21,8 +22,8 @@ class TestSTABasic:
 
     def test_construction_custom(self):
         sta = SpectralTransportAlignment(
-            embed_dim=128, eta=0.05, ema_beta=0.99,
-            warmup_steps=200, update_interval=5)
+            embed_dim=128, eta=0.05, ema_beta=0.99, warmup_steps=200, update_interval=5
+        )
         assert sta.embed_dim == 128
         assert sta.eta == 0.05
         assert sta.ema_beta == 0.99
@@ -32,14 +33,14 @@ class TestSTABasic:
     def test_forward_shape(self):
         sta = SpectralTransportAlignment(embed_dim=64)
         z = torch.randn(4, 32, 64)
-        loss, info = sta(z, step=1000)
+        loss, _info = sta(z, step=1000)
         assert loss.shape == ()
         assert loss.item() >= 0.0
 
     def test_forward_2d_input(self):
         sta = SpectralTransportAlignment(embed_dim=64)
         z = torch.randn(16, 64)
-        loss, info = sta(z, step=1000)
+        loss, _info = sta(z, step=1000)
         assert loss.shape == ()
         assert loss.item() >= 0.0
 
@@ -47,11 +48,18 @@ class TestSTABasic:
         sta = SpectralTransportAlignment(embed_dim=64)
         z = torch.randn(4, 32, 64)
         _, info = sta(z, step=1000)
-        expected_keys = ['sta_loss', 'sta_w1', 'sta_warmup_factor',
-                         'sta_warmup', 'sta_spectral_gap',
-                         'sta_running_w1', 'sta_running_spectral_gap',
-                         'sta_max_eigenvalue', 'sta_min_eigenvalue',
-                         'sta_condition_number']
+        expected_keys = [
+            "sta_loss",
+            "sta_w1",
+            "sta_warmup_factor",
+            "sta_warmup",
+            "sta_spectral_gap",
+            "sta_running_w1",
+            "sta_running_spectral_gap",
+            "sta_max_eigenvalue",
+            "sta_min_eigenvalue",
+            "sta_condition_number",
+        ]
         for k in expected_keys:
             assert k in info, f"Missing key: {k}"
 
@@ -73,22 +81,22 @@ class TestSTAWarmup:
         z = torch.randn(4, 32, 64)
         loss, info = sta(z, step=0)
         assert loss.item() == 0.0
-        assert info['sta_warmup'] is True
+        assert info["sta_warmup"] is True
 
     def test_warmup_partial(self):
         """During partial warmup, loss is scaled by warmup_factor."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=1000)
         z = torch.randn(4, 32, 64)
         # Step 500 = 50% warmup
-        loss, info = sta(z, step=500)
-        assert info['sta_warmup_factor'] == pytest.approx(0.5, abs=0.01)
+        _loss, info = sta(z, step=500)
+        assert info["sta_warmup_factor"] == pytest.approx(0.5, abs=0.01)
 
     def test_warmup_complete(self):
         """After warmup, loss is unscaled."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=100)
         z = torch.randn(4, 32, 64)
-        loss, info = sta(z, step=200)
-        assert info['sta_warmup_factor'] == pytest.approx(1.0)
+        _loss, info = sta(z, step=200)
+        assert info["sta_warmup_factor"] == pytest.approx(1.0)
 
 
 class TestSTAWasserstein:
@@ -96,31 +104,31 @@ class TestSTAWasserstein:
 
     def test_w1_zero_for_same_spectrum(self):
         """W1 should be ~0 when current and reference spectra match."""
-        sta = SpectralTransportAlignment(embed_dim=64, ema_beta=0.0,
-                                          warmup_steps=0, update_interval=1)
+        sta = SpectralTransportAlignment(
+            embed_dim=64, ema_beta=0.0, warmup_steps=0, update_interval=1
+        )
         # Create z with a specific spectrum
         z = torch.randn(32, 64)
         # Initialize reference
         sta(z, step=1)
         # Same z again → W1 should be ~0
-        loss, info = sta(z, step=2)
+        _loss, info = sta(z, step=2)
         # ema_beta=0 means ref_cov = cov_batch, so W1 should be very small
-        assert info['sta_w1'] < 0.1
+        assert info["sta_w1"] < 0.1
 
     def test_w1_monotone_coupling(self):
         """W1 with sorted eigenvalues implements optimal coupling
         (Kantorovich-Rubinstein duality)."""
-        sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0,
-                                          update_interval=1)
+        sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0, update_interval=1)
         # Step 1: establish reference
         z1 = torch.randn(32, 64)
         sta(z1, step=1)
         # Step 2: different spectrum
         z2 = torch.randn(32, 64) * 2  # different scale
-        loss, info = sta(z2, step=2)
+        _loss, info = sta(z2, step=2)
         # W1 should be positive (spectra differ)
         # With ema_beta=0.999, reference barely changes, so W1 > 0
-        assert info['sta_w1'] >= 0.0
+        assert info["sta_w1"] >= 0.0
 
 
 class TestSTADavisKahan:
@@ -147,8 +155,7 @@ class TestSTADavisKahan:
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0)
         z = torch.randn(32, 64)
         sta(z, step=100)
-        bound = sta.compute_downstream_stability_bound(
-            probe_norm=1.0, total_variance=1.0, k=7)
+        bound = sta.compute_downstream_stability_bound(probe_norm=1.0, total_variance=1.0, k=7)
         assert bound >= 0.0
 
 
@@ -159,21 +166,21 @@ class TestSTAEdgeCases:
         """Single sample (N=1) should not crash."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0)
         z = torch.randn(1, 64)
-        loss, info = sta(z, step=100)
+        loss, _info = sta(z, step=100)
         assert loss.item() >= 0.0
 
     def test_identical_samples(self):
         """All identical samples should not crash."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0)
         z = torch.ones(8, 64)
-        loss, info = sta(z, step=100)
+        loss, _info = sta(z, step=100)
         assert loss.item() >= 0.0
 
     def test_very_large_values(self):
         """Very large values should not cause NaN."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0)
         z = torch.randn(4, 32, 64) * 1e3
-        loss, info = sta(z, step=100)
+        loss, _info = sta(z, step=100)
         assert not math.isnan(loss.item())
         assert not math.isinf(loss.item())
 
@@ -181,14 +188,14 @@ class TestSTAEdgeCases:
         """Very small values should not cause NaN."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0)
         z = torch.randn(4, 32, 64) * 1e-6
-        loss, info = sta(z, step=100)
+        loss, _info = sta(z, step=100)
         assert not math.isnan(loss.item())
 
     def test_zero_input(self):
         """Zero input should not crash."""
         sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0)
         z = torch.zeros(4, 32, 64)
-        loss, info = sta(z, step=100)
+        loss, _info = sta(z, step=100)
         assert loss.item() >= 0.0
 
 
@@ -197,20 +204,20 @@ class TestSTAIntegration:
 
     def test_multiple_steps(self):
         """Running STA over multiple steps should work smoothly."""
-        sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=10,
-                                          update_interval=5)
+        sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=10, update_interval=5)
         losses = []
         for step in range(50):
             z = torch.randn(4, 16, 64) * (1 + 0.01 * step)  # slowly changing
-            loss, info = sta(z, step=step)
+            loss, _info = sta(z, step=step)
             losses.append(loss.item())
         # Losses should be finite
         assert all(math.isfinite(l) for l in losses)
 
     def test_spectral_drift_detected(self):
         """STA should detect when the spectrum changes significantly."""
-        sta = SpectralTransportAlignment(embed_dim=64, warmup_steps=0,
-                                          ema_beta=0.999, update_interval=1)
+        sta = SpectralTransportAlignment(
+            embed_dim=64, warmup_steps=0, ema_beta=0.999, update_interval=1
+        )
         # Establish a reference with one scale
         z1 = torch.randn(32, 64)
         for step in range(1, 100):
@@ -218,18 +225,18 @@ class TestSTAIntegration:
 
         # Now change to a very different scale
         z2 = torch.randn(32, 64) * 5.0
-        loss_before, info_before = sta(z1, step=100)
-        loss_after, info_after = sta(z2, step=101)
+        _loss_before, _info_before = sta(z1, step=100)
+        _loss_after, info_after = sta(z2, step=101)
 
         # W1 should be larger with the different input
-        assert info_after['sta_w1'] > 0.0
+        assert info_after["sta_w1"] > 0.0
 
     def test_repr(self):
         """Test string representation."""
         sta = SpectralTransportAlignment(embed_dim=768, eta=0.05)
         s = repr(sta)
-        assert 'embed_dim=768' in s
-        assert 'eta=0.05' in s
+        assert "embed_dim=768" in s
+        assert "eta=0.05" in s
 
 
 class TestSTAMathematical:
@@ -283,7 +290,6 @@ class TestSTAMathematical:
     def test_davis_kahan_scales_with_w1(self):
         """Davis-Kahan bound should scale linearly with W1
         (bound = W1 / δ, so 2*W1 gives 2*bound)."""
-        D = 64
         # Fix spectral gap
         delta = 1.0
         w1_1 = 0.01

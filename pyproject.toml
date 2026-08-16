@@ -27,6 +27,7 @@ addopts = "-v --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+lint.ignore = ["BLE001", "RUF059", "PLR0402", "F401", "S110", "S112", "RUF012", "RUF034", "B008", "I001", "F841", "RUF022"]
 
 [tool.black]
 line-length = 100

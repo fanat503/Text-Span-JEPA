@@ -58,24 +58,24 @@
 #  You can also use individual mechanisms:
 #    from src.models.mechanisms import jawp_loss, cgn_gate, pcr_refine, ...
 
+from __future__ import annotations
+
+from typing import Any
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, Optional, Tuple, Any
+from torch import nn
 
-from .jawp import JAWPModule
 from .cgn import ContextualGatingNetwork
-from .swip import SWIPModule
-from .pcr import PredictiveCascadeRefinement
-from .spc import SpectralPredictiveCoding
-from .wsd import WorkspaceSyncDrift
-from .gac import GradientAllocatedCapacity
 from .cmc import CrossMaskConsistency
-from .sta import SpectralTransportAlignment
-
-
+from .gac import GradientAllocatedCapacity
+from .jawp import JAWPModule
+from .pcr import PredictiveCascadeRefinement
 from .puc import PredictionUncertaintyCalibration
 from .rdc import RepresentationDriftCompensation
+from .spc import SpectralPredictiveCoding
+from .sta import SpectralTransportAlignment
+from .swip import SWIPModule
+from .wsd import WorkspaceSyncDrift
 from .wsr import WorkspaceSharpnessRegularization
 
 
@@ -93,12 +93,24 @@ class MechanismBundle(nn.Module):
 
     # GWP mechanism groups -- for paper organization and ablation
     GROUPS = {
-        'core': ['jawp'],  # workspace construction
-        'routing': ['cgn', 'swip', 'pcr', 'spc'],  # information flow
-        'stability': ['wsd', 'cmc', 'gac', 'sta', 'puc', 'rdc', 'wsr'],  # integrity
+        "core": ["jawp"],  # workspace construction
+        "routing": ["cgn", "swip", "pcr", "spc"],  # information flow
+        "stability": ["wsd", "cmc", "gac", "sta", "puc", "rdc", "wsr"],  # integrity
     }
-    ALL_MECHANISMS = ['jawp', 'cgn', 'swip', 'pcr', 'spc',
-                      'wsd', 'cmc', 'gac', 'sta', 'puc', 'rdc', 'wsr']
+    ALL_MECHANISMS = [
+        "jawp",
+        "cgn",
+        "swip",
+        "pcr",
+        "spc",
+        "wsd",
+        "cmc",
+        "gac",
+        "sta",
+        "puc",
+        "rdc",
+        "wsr",
+    ]
 
     def active_mechanisms(self) -> list:
         """Return list of currently active mechanism names."""
@@ -107,8 +119,7 @@ class MechanismBundle(nn.Module):
     def mechanism_groups(self) -> dict:
         """Return {group_name: [active_mechanisms_in_group]}."""
         active = self.active_mechanisms()
-        return {g: [m for m in mechs if m in active]
-                for g, mechs in self.GROUPS.items()}
+        return {g: [m for m in mechs if m in active] for g, mechs in self.GROUPS.items()}
 
     def dependency_dag(self) -> dict:
         """Return mechanism dependency DAG.
@@ -118,14 +129,14 @@ class MechanismBundle(nn.Module):
         """
         active = self.active_mechanisms()
         dag = {m: [] for m in active}
-        if 'wsd' in active and 'jawp' in active:
-            dag['wsd'] = ['jawp']
-        if 'swip' in active and 'jawp' in active:
-            dag['swip'] = ['jawp']
-        if 'rdc' in active and 'jawp' in active:
-            dag['rdc'] = ['jawp']
-        if 'wsr' in active and 'jawp' in active:
-            dag['wsr'] = ['jawp']
+        if "wsd" in active and "jawp" in active:
+            dag["wsd"] = ["jawp"]
+        if "swip" in active and "jawp" in active:
+            dag["swip"] = ["jawp"]
+        if "rdc" in active and "jawp" in active:
+            dag["rdc"] = ["jawp"]
+        if "wsr" in active and "jawp" in active:
+            dag["wsr"] = ["jawp"]
         return dag
 
     def __init__(
@@ -134,10 +145,10 @@ class MechanismBundle(nn.Module):
         # JAWP
         use_jawp: bool = True,
         jawk_k_start: int = 1,
-        jawk_k_end: Optional[int] = None,
+        jawk_k_end: int | None = None,
         jawk_curriculum_steps: int = 10000,
         jawk_alpha: float = 0.1,
-        jawk_init: str = 'identity',
+        jawk_init: str = "identity",
         # Predictive Rank
         lambda_predictive_rank: float = 0.0,
         # CGN
@@ -148,27 +159,27 @@ class MechanismBundle(nn.Module):
         cgn_anneal_steps: int = 10000,
         # SWIP
         use_swip: bool = False,
-        swip_k_workspace: Optional[int] = None,
+        swip_k_workspace: int | None = None,
         swip_target_variance: float = 1.0,
         # PCR
         use_pcr: bool = False,
         pcr_n_levels: int = 3,
-        pcr_level_dims: Optional[list] = None,
+        pcr_level_dims: list | None = None,
         pcr_warmup_steps: int = 1000,
         # SPC
         use_spc: bool = False,
         spc_n_bands: int = 8,
-        spc_init: str = 'dct',
+        spc_init: str = "dct",
         # WSD
         use_wsd: bool = False,
-        wsd_k: Optional[int] = None,
+        wsd_k: int | None = None,
         wsd_sync_interval: int = 100,
         wsd_ema_beta: float = 0.99,
         # CMC
         use_cmc: bool = False,
-        cmc_second_mask_ratio: Optional[float] = None,
+        cmc_second_mask_ratio: float | None = None,
         cmc_min_overlap_ratio: float = 0.2,
-        cmc_mode: str = 'interval',
+        cmc_mode: str = "interval",
         cmc_interval: int = 10,
         # GAC
         use_gac: bool = False,
@@ -189,14 +200,14 @@ class MechanismBundle(nn.Module):
         rdc_eta: float = 0.01,
         rdc_ema_beta: float = 0.999,
         rdc_warmup_steps: int = 500,
-        rdc_k_workspace: Optional[int] = None,
+        rdc_k_workspace: int | None = None,
         # WSR
         use_wsr: bool = False,
         wsr_rho: float = 0.05,
         wsr_eta: float = 0.01,
         wsr_ema_beta: float = 0.999,
         wsr_warmup_steps: int = 500,
-        wsr_mode: str = 'gradient',
+        wsr_mode: str = "gradient",
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -217,9 +228,12 @@ class MechanismBundle(nn.Module):
         # Mechanism 1-5: JAWP
         if use_jawp:
             self.jawp = JAWPModule(
-                embed_dim=embed_dim, k_start=jawk_k_start,
-                k_end=jawk_k_end, curriculum_steps=jawk_curriculum_steps,
-                alpha=jawk_alpha, init=jawk_init,
+                embed_dim=embed_dim,
+                k_start=jawk_k_start,
+                k_end=jawk_k_end,
+                curriculum_steps=jawk_curriculum_steps,
+                alpha=jawk_alpha,
+                init=jawk_init,
             )
         else:
             self.jawp = None
@@ -227,8 +241,10 @@ class MechanismBundle(nn.Module):
         # Mechanism 6: CGN
         if use_cgn:
             self.cgn = ContextualGatingNetwork(
-                embed_dim=embed_dim, n_groups=cgn_n_groups,
-                tau_start=cgn_tau_start, tau_end=cgn_tau_end,
+                embed_dim=embed_dim,
+                n_groups=cgn_n_groups,
+                tau_start=cgn_tau_start,
+                tau_end=cgn_tau_end,
                 anneal_steps=cgn_anneal_steps,
             )
         else:
@@ -237,7 +253,8 @@ class MechanismBundle(nn.Module):
         # Mechanism 7: SWIP
         if use_swip:
             self.swip = SWIPModule(
-                embed_dim=embed_dim, k_workspace=swip_k_workspace,
+                embed_dim=embed_dim,
+                k_workspace=swip_k_workspace,
                 target_variance=swip_target_variance,
                 use_jawp_workspace=use_jawp,
             )
@@ -247,7 +264,8 @@ class MechanismBundle(nn.Module):
         # Mechanism 8: PCR
         if use_pcr:
             self.pcr = PredictiveCascadeRefinement(
-                embed_dim=embed_dim, n_levels=pcr_n_levels,
+                embed_dim=embed_dim,
+                n_levels=pcr_n_levels,
                 level_dims=pcr_level_dims,
             )
             self.pcr.warmup_steps = pcr_warmup_steps
@@ -257,7 +275,9 @@ class MechanismBundle(nn.Module):
         # Mechanism 9: SPC
         if use_spc:
             self.spc = SpectralPredictiveCoding(
-                embed_dim=embed_dim, n_bands=spc_n_bands, init=spc_init,
+                embed_dim=embed_dim,
+                n_bands=spc_n_bands,
+                init=spc_init,
             )
         else:
             self.spc = None
@@ -266,8 +286,10 @@ class MechanismBundle(nn.Module):
         if use_wsd and use_jawp:
             k_ws = wsd_k or (jawk_k_end or embed_dim // 10)
             self.wsd = WorkspaceSyncDrift(
-                embed_dim=embed_dim, k=k_ws,
-                sync_interval=wsd_sync_interval, ema_beta=wsd_ema_beta,
+                embed_dim=embed_dim,
+                k=k_ws,
+                sync_interval=wsd_sync_interval,
+                ema_beta=wsd_ema_beta,
             )
         else:
             self.wsd = None
@@ -278,7 +300,8 @@ class MechanismBundle(nn.Module):
                 embed_dim=embed_dim,
                 second_mask_ratio=cmc_second_mask_ratio,
                 min_overlap_ratio=cmc_min_overlap_ratio,
-                mode=cmc_mode, interval=cmc_interval,
+                mode=cmc_mode,
+                interval=cmc_interval,
             )
         else:
             self.cmc = None
@@ -286,8 +309,10 @@ class MechanismBundle(nn.Module):
         # Mechanism 12: GAC
         if use_gac:
             self.gac = GradientAllocatedCapacity(
-                embed_dim=embed_dim, gamma=gac_gamma,
-                tau_grad=gac_tau_grad, warmup_steps=gac_warmup_steps,
+                embed_dim=embed_dim,
+                gamma=gac_gamma,
+                tau_grad=gac_tau_grad,
+                warmup_steps=gac_warmup_steps,
             )
         else:
             self.gac = None
@@ -295,7 +320,9 @@ class MechanismBundle(nn.Module):
         # Mechanism 13: STA
         if use_sta:
             self.sta = SpectralTransportAlignment(
-                embed_dim=embed_dim, eta=sta_eta, ema_beta=sta_ema_beta,
+                embed_dim=embed_dim,
+                eta=sta_eta,
+                ema_beta=sta_ema_beta,
             )
         else:
             self.sta = None
@@ -303,7 +330,9 @@ class MechanismBundle(nn.Module):
         # Mechanism 14: PUC
         if use_puc:
             self.puc = PredictionUncertaintyCalibration(
-                embed_dim=embed_dim, eta=puc_eta, ema_beta=puc_ema_beta,
+                embed_dim=embed_dim,
+                eta=puc_eta,
+                ema_beta=puc_ema_beta,
                 warmup_steps=puc_warmup_steps,
             )
         else:
@@ -312,8 +341,11 @@ class MechanismBundle(nn.Module):
         # Mechanism 15: RDC
         if use_rdc:
             self.rdc = RepresentationDriftCompensation(
-                embed_dim=embed_dim, eta=rdc_eta, ema_beta=rdc_ema_beta,
-                warmup_steps=rdc_warmup_steps, k_workspace=rdc_k_workspace,
+                embed_dim=embed_dim,
+                eta=rdc_eta,
+                ema_beta=rdc_ema_beta,
+                warmup_steps=rdc_warmup_steps,
+                k_workspace=rdc_k_workspace,
             )
         else:
             self.rdc = None
@@ -321,15 +353,18 @@ class MechanismBundle(nn.Module):
         # Mechanism 16: WSR
         if use_wsr:
             self.wsr = WorkspaceSharpnessRegularization(
-                embed_dim=embed_dim, rho=wsr_rho, eta=wsr_eta,
-                ema_beta=wsr_ema_beta, warmup_steps=wsr_warmup_steps,
+                embed_dim=embed_dim,
+                rho=wsr_rho,
+                eta=wsr_eta,
+                ema_beta=wsr_ema_beta,
+                warmup_steps=wsr_warmup_steps,
                 mode=wsr_mode,
             )
         else:
             self.wsr = None
 
     @classmethod
-    def from_config(cls, config) -> 'MechanismBundle':
+    def from_config(cls, config) -> MechanismBundle:
         """Create from a TextSpanJEPAConfig object."""
         return cls(
             embed_dim=config.embed_dim,
@@ -348,53 +383,53 @@ class MechanismBundle(nn.Module):
             use_swip=config.use_swip,
             swip_k_workspace=config.swip_k_workspace,
             swip_target_variance=config.swip_target_variance,
-            use_pcr=getattr(config, 'use_pcr', False),
-            pcr_n_levels=getattr(config, 'pcr_n_levels', 3),
-            pcr_level_dims=getattr(config, 'pcr_level_dims', None),
-            pcr_warmup_steps=getattr(config, 'pcr_warmup_steps', 1000),
-            use_spc=getattr(config, 'use_spc', False),
-            spc_n_bands=getattr(config, 'spc_n_bands', 8),
-            spc_init=getattr(config, 'spc_init', 'dct'),
-            use_wsd=getattr(config, 'use_wsd', False),
-            wsd_k=getattr(config, 'wsd_k', None),
-            wsd_sync_interval=getattr(config, 'wsd_sync_interval', 100),
-            wsd_ema_beta=getattr(config, 'wsd_ema_beta', 0.99),
-            use_cmc=getattr(config, 'use_cmc', False),
-            cmc_second_mask_ratio=getattr(config, 'cmc_second_mask_ratio', None),
-            cmc_min_overlap_ratio=getattr(config, 'cmc_min_overlap_ratio', 0.2),
-            cmc_mode=getattr(config, 'cmc_mode', 'interval'),
-            cmc_interval=getattr(config, 'cmc_interval', 10),
-            use_gac=getattr(config, 'use_gac', False),
-            gac_gamma=getattr(config, 'gac_gamma', 0.01),
-            gac_tau_grad=getattr(config, 'gac_tau_grad', 1e-4),
-            gac_warmup_steps=getattr(config, 'gac_warmup_steps', 1000),
-            use_sta=getattr(config, 'use_sta', False),
-            sta_eta=getattr(config, 'sta_eta', 0.01),
-            sta_ema_beta=getattr(config, 'sta_ema_beta', 0.999),
-            use_puc=getattr(config, 'use_puc', False),
-            puc_eta=getattr(config, 'puc_eta', 0.01),
-            puc_ema_beta=getattr(config, 'puc_ema_beta', 0.999),
-            puc_warmup_steps=getattr(config, 'puc_warmup_steps', 500),
-            use_rdc=getattr(config, 'use_rdc', False),
-            rdc_eta=getattr(config, 'rdc_eta', 0.01),
-            rdc_ema_beta=getattr(config, 'rdc_ema_beta', 0.999),
-            rdc_warmup_steps=getattr(config, 'rdc_warmup_steps', 500),
-            rdc_k_workspace=getattr(config, 'rdc_k_workspace', None),
-            use_wsr=getattr(config, 'use_wsr', False),
-            wsr_rho=getattr(config, 'wsr_rho', 0.05),
-            wsr_eta=getattr(config, 'wsr_eta', 0.01),
-            wsr_ema_beta=getattr(config, 'wsr_ema_beta', 0.999),
-            wsr_warmup_steps=getattr(config, 'wsr_warmup_steps', 500),
-            wsr_mode=getattr(config, 'wsr_mode', 'gradient'),
+            use_pcr=getattr(config, "use_pcr", False),
+            pcr_n_levels=getattr(config, "pcr_n_levels", 3),
+            pcr_level_dims=getattr(config, "pcr_level_dims", None),
+            pcr_warmup_steps=getattr(config, "pcr_warmup_steps", 1000),
+            use_spc=getattr(config, "use_spc", False),
+            spc_n_bands=getattr(config, "spc_n_bands", 8),
+            spc_init=getattr(config, "spc_init", "dct"),
+            use_wsd=getattr(config, "use_wsd", False),
+            wsd_k=getattr(config, "wsd_k", None),
+            wsd_sync_interval=getattr(config, "wsd_sync_interval", 100),
+            wsd_ema_beta=getattr(config, "wsd_ema_beta", 0.99),
+            use_cmc=getattr(config, "use_cmc", False),
+            cmc_second_mask_ratio=getattr(config, "cmc_second_mask_ratio", None),
+            cmc_min_overlap_ratio=getattr(config, "cmc_min_overlap_ratio", 0.2),
+            cmc_mode=getattr(config, "cmc_mode", "interval"),
+            cmc_interval=getattr(config, "cmc_interval", 10),
+            use_gac=getattr(config, "use_gac", False),
+            gac_gamma=getattr(config, "gac_gamma", 0.01),
+            gac_tau_grad=getattr(config, "gac_tau_grad", 1e-4),
+            gac_warmup_steps=getattr(config, "gac_warmup_steps", 1000),
+            use_sta=getattr(config, "use_sta", False),
+            sta_eta=getattr(config, "sta_eta", 0.01),
+            sta_ema_beta=getattr(config, "sta_ema_beta", 0.999),
+            use_puc=getattr(config, "use_puc", False),
+            puc_eta=getattr(config, "puc_eta", 0.01),
+            puc_ema_beta=getattr(config, "puc_ema_beta", 0.999),
+            puc_warmup_steps=getattr(config, "puc_warmup_steps", 500),
+            use_rdc=getattr(config, "use_rdc", False),
+            rdc_eta=getattr(config, "rdc_eta", 0.01),
+            rdc_ema_beta=getattr(config, "rdc_ema_beta", 0.999),
+            rdc_warmup_steps=getattr(config, "rdc_warmup_steps", 500),
+            rdc_k_workspace=getattr(config, "rdc_k_workspace", None),
+            use_wsr=getattr(config, "use_wsr", False),
+            wsr_rho=getattr(config, "wsr_rho", 0.05),
+            wsr_eta=getattr(config, "wsr_eta", 0.01),
+            wsr_ema_beta=getattr(config, "wsr_ema_beta", 0.999),
+            wsr_warmup_steps=getattr(config, "wsr_warmup_steps", 500),
+            wsr_mode=getattr(config, "wsr_mode", "gradient"),
         )
 
     def forward(
         self,
         z: torch.Tensor,
         z_target: torch.Tensor,
-        mask_positions: Optional[torch.Tensor] = None,
+        mask_positions: torch.Tensor | None = None,
         step: int = 0,
-    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Apply all active mechanisms."""
         info = {}
         z_out = z
@@ -402,21 +437,21 @@ class MechanismBundle(nn.Module):
         # CGN
         if self.cgn is not None and mask_positions is not None:
             z_out, cgn_info = self.cgn(z_out, mask_positions, step=step)
-            info.update({f'cgn_{k}': v for k, v in cgn_info.items()})
+            info.update({f"cgn_{k}": v for k, v in cgn_info.items()})
 
         # PCR
         if self.pcr is not None:
             z_out, pcr_info = self.pcr(z_out, z_target, step=step)
-            info.update({f'pcr_{k}': v for k, v in pcr_info.items()})
+            info.update({f"pcr_{k}": v for k, v in pcr_info.items()})
 
         # JAWP
         if self.jawp is not None:
             jawp_loss, jawp_info = self.jawp.compute_loss(z_out, z_target, step=step)
-            info['jawp_loss'] = jawp_loss
-            info.update({f'jawp_{k}': v for k, v in jawp_info.items()})
+            info["jawp_loss"] = jawp_loss
+            info.update({f"jawp_{k}": v for k, v in jawp_info.items()})
             if self.lambda_predictive_rank > 0:
                 rank_loss = self.jawp.predictive_rank_loss(z_out)
-                info['predictive_rank_loss'] = rank_loss.item()
+                info["predictive_rank_loss"] = rank_loss.item()
 
         # SWIP
         if self.swip is not None:
@@ -425,34 +460,34 @@ class MechanismBundle(nn.Module):
                 k_active = int(self.jawp.active_k.item())
                 ws_Q = self.jawp.workspace_Q.data[:, :k_active]
             swip_loss, swip_info = self.swip(z_out, workspace_Q=ws_Q)
-            info['swip_loss'] = swip_loss
-            info.update({f'swip_{k}': v for k, v in swip_info.items()})
+            info["swip_loss"] = swip_loss
+            info.update({f"swip_{k}": v for k, v in swip_info.items()})
 
         # SPC
         if self.spc is not None:
             spc_loss, spc_info = self.spc(z_out, z_target)
-            info['spc_loss'] = spc_loss
-            info.update({f'spc_{k}': v for k, v in spc_info.items()})
+            info["spc_loss"] = spc_loss
+            info.update({f"spc_{k}": v for k, v in spc_info.items()})
 
         # WSD
         if self.wsd is not None and self.jawp is not None:
             k_active = int(self.jawp.active_k.item())
             Q_jawp = self.jawp.workspace_Q.data[:, :k_active]
             wsd_loss, wsd_info = self.wsd.compute_drift(Q_jawp, z_target, step=step)
-            info['wsd_loss'] = wsd_loss
-            info.update({f'wsd_{k}': v for k, v in wsd_info.items()})
+            info["wsd_loss"] = wsd_loss
+            info.update({f"wsd_{k}": v for k, v in wsd_info.items()})
 
         # STA
         if self.sta is not None:
             sta_loss, sta_info = self.sta(z_out, step=step)
-            info['sta_loss'] = sta_loss
-            info.update({f'sta_{k}': v for k, v in sta_info.items()})
+            info["sta_loss"] = sta_loss
+            info.update({f"sta_{k}": v for k, v in sta_info.items()})
 
         # PUC
         if self.puc is not None:
             puc_loss, puc_info = self.puc(z_out, step=step)
-            info['puc_loss'] = puc_loss
-            info.update({f'puc_{k}': v for k, v in puc_info.items()})
+            info["puc_loss"] = puc_loss
+            info.update({f"puc_{k}": v for k, v in puc_info.items()})
 
         # RDC (requires z_previous from external state — typically returns 0 loss
         # in forward(); call compute_rdc_loss separately with z_previous)
@@ -463,8 +498,8 @@ class MechanismBundle(nn.Module):
             k_active_wsr = int(self.jawp.active_k.item())
             Q_jawp_wsr = self.jawp.workspace_Q.data[:, :k_active_wsr]
             wsr_loss, wsr_info = self.wsr(Q_jawp_wsr, step=step)
-            info['wsr_loss'] = wsr_loss
-            info.update({f'wsr_{k}': v for k, v in wsr_info.items()})
+            info["wsr_loss"] = wsr_loss
+            info.update({f"wsr_{k}": v for k, v in wsr_info.items()})
 
         return z_out, info
 
@@ -473,7 +508,7 @@ class MechanismBundle(nn.Module):
         z_pred_primary: torch.Tensor,
         z_pred_secondary: torch.Tensor,
         overlap_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+    ) -> tuple[torch.Tensor, dict[str, any]]:
         """Compute CMC loss (requires second forward pass, call separately).
 
         Args:
@@ -487,7 +522,7 @@ class MechanismBundle(nn.Module):
         """
         if self.cmc is None:
             zero = torch.tensor(0.0, device=z_pred_primary.device)
-            return zero, {'cmc_loss': 0.0, 'cmc_skipped': True}
+            return zero, {"cmc_loss": 0.0, "cmc_skipped": True}
         return self.cmc(z_pred_primary, z_pred_secondary, overlap_mask)
 
     def retract(self):
@@ -515,6 +550,7 @@ class MechanismBundle(nn.Module):
 #  One-function convenience API for individual mechanisms
 # ═══════════════════════════════════════════════════════════════════
 
+
 def jawp_loss(z_pred, z_target, embed_dim=768, k=77, alpha=0.1, step=0):
     """Compute JAWP loss — one function call."""
     jawp = JAWPModule(embed_dim=embed_dim, k_start=1, k_end=k, alpha=alpha)
@@ -538,13 +574,12 @@ def pcr_refine(z_pred, z_target, embed_dim=768, n_levels=3, step=0):
 
 def swip_whiten(z, embed_dim=768, k_workspace=25, target_variance=1.0):
     """Selective whitening with information preservation — one function call."""
-    swip = SWIPModule(embed_dim=embed_dim, k_workspace=k_workspace,
-                      target_variance=target_variance)
+    swip = SWIPModule(embed_dim=embed_dim, k_workspace=k_workspace, target_variance=target_variance)
     swip = swip.to(z.device)
     return swip(z)
 
 
-def spc_loss(z_pred, z_target, embed_dim=768, n_bands=8, init='dct'):
+def spc_loss(z_pred, z_target, embed_dim=768, n_bands=8, init="dct"):
     """Spectral predictive coding loss — one function call."""
     spc = SpectralPredictiveCoding(embed_dim=embed_dim, n_bands=n_bands, init=init)
     spc = spc.to(z_pred.device)
@@ -583,6 +618,7 @@ def sta_align(z, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
 def puc_calibrate(z_pred, embed_dim=768, eta=0.01, ema_beta=0.999, step=0):
     """Prediction uncertainty calibration loss — one function call."""
     from .puc import PredictionUncertaintyCalibration
+
     puc = PredictionUncertaintyCalibration(embed_dim=embed_dim, eta=eta, ema_beta=ema_beta)
     puc = puc.to(z_pred.device)
     return puc(z_pred, step=step)
@@ -606,6 +642,7 @@ def wsr_sharpness(Q, embed_dim=768, rho=0.05, eta=0.01, step=0):
 #  GWP — Grassmann Workspace Prediction
 #  The unified framework. This is what top-labs will import and cite.
 # ═══════════════════════════════════════════════════════════════════
+
 
 class GWP(MechanismBundle):
     """GWP: Grassmann Workspace Prediction — unified framework.
@@ -660,12 +697,21 @@ class GWP(MechanismBundle):
 
 # Public API — this is what top-labs import
 __all__ = [
-    'GWP',
-    'GWPFramework',
-    'MechanismBundle',
-    'jawp_loss', 'cgn_gate', 'pcr_refine', 'swip_whiten',
-    'spc_loss', 'wsd_drift', 'cmc_consistency', 'gac_explore',
-    'sta_align', 'puc_calibrate', 'rdc_compensate', 'wsr_sharpness',
+    "GWP",
+    "GWPFramework",
+    "MechanismBundle",
+    "cgn_gate",
+    "cmc_consistency",
+    "gac_explore",
+    "jawp_loss",
+    "pcr_refine",
+    "puc_calibrate",
+    "rdc_compensate",
+    "spc_loss",
+    "sta_align",
+    "swip_whiten",
+    "wsd_drift",
+    "wsr_sharpness",
 ]
 
 # Alias for discoverability

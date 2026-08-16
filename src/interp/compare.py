@@ -5,9 +5,8 @@
 # Systematic comparison pipeline with linguistic feature extraction,
 # geometry comparison, and full reporting
 
+
 import torch
-import torch.nn.functional as F
-import math
 
 
 class RepresentationComparator:
@@ -21,7 +20,7 @@ class RepresentationComparator:
     - Causal structure (intervention predictability)
     """
 
-    def __init__(self, jepa_model, baseline_model, tokenizer=None, device='cpu'):
+    def __init__(self, jepa_model, baseline_model, tokenizer=None, device="cpu"):
         self.jepa = jepa_model
         self.baseline = baseline_model
         self.tokenizer = tokenizer
@@ -49,7 +48,11 @@ class RepresentationComparator:
         for batch_idx, batch in enumerate(dataloader):
             if batch_idx >= max_batches:
                 break
-            ids = batch.to(self.device) if isinstance(batch, torch.Tensor) else batch[0].to(self.device)
+            ids = (
+                batch.to(self.device)
+                if isinstance(batch, torch.Tensor)
+                else batch[0].to(self.device)
+            )
             input_ids_list.append(ids.cpu())
 
             h_j, _ = self.jepa.encoder(ids)
@@ -60,9 +63,9 @@ class RepresentationComparator:
             baseline_reps.append(h_b.mean(dim=1).cpu())
 
         return {
-            'jepa': torch.cat(jepa_reps, dim=0) if jepa_reps else torch.tensor([]),
-            'baseline': torch.cat(baseline_reps, dim=0) if baseline_reps else torch.tensor([]),
-            'input_ids': torch.cat(input_ids_list, dim=0) if input_ids_list else torch.tensor([]),
+            "jepa": torch.cat(jepa_reps, dim=0) if jepa_reps else torch.tensor([]),
+            "baseline": torch.cat(baseline_reps, dim=0) if baseline_reps else torch.tensor([]),
+            "input_ids": torch.cat(input_ids_list, dim=0) if input_ids_list else torch.tensor([]),
         }
 
     @torch.no_grad()
@@ -77,6 +80,7 @@ class RepresentationComparator:
             dict with comparison metrics
         """
         from src.models.collapse import CollapseDiagnostics
+
         diag = CollapseDiagnostics()
 
         jepa_metrics = diag.compute(
@@ -90,30 +94,36 @@ class RepresentationComparator:
 
         comparison = {}
         for key in jepa_metrics:
-            if key.endswith('_online'):
-                base_key = key.replace('_online', '')
+            if key.endswith("_online"):
+                base_key = key.replace("_online", "")
                 comparison[base_key] = {
-                    'jepa': jepa_metrics.get(key, 0.0),
-                    'baseline': baseline_metrics.get(key, 0.0),
-                    'diff': jepa_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0),
-                    'jepa_better': None,  # depends on metric
+                    "jepa": jepa_metrics.get(key, 0.0),
+                    "baseline": baseline_metrics.get(key, 0.0),
+                    "diff": jepa_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0),
+                    "jepa_better": None,  # depends on metric
                 }
 
         # Determine "better" direction per metric
         higher_is_better = {
-            'effective_rank', 'participation_ratio', 'rank_utilization',
-            'sv_entropy', 'intrinsic_dim',
+            "effective_rank",
+            "participation_ratio",
+            "rank_utilization",
+            "sv_entropy",
+            "intrinsic_dim",
         }
         lower_is_better = {
-            'collapsed_dim_ratio', 'condition_number', 'mean_pairwise_cosine',
-            'coherence', 'svd_sharpness',
+            "collapsed_dim_ratio",
+            "condition_number",
+            "mean_pairwise_cosine",
+            "coherence",
+            "svd_sharpness",
         }
 
         for key, vals in comparison.items():
             if key in higher_is_better:
-                vals['jepa_better'] = vals['jepa'] > vals['baseline']
+                vals["jepa_better"] = vals["jepa"] > vals["baseline"]
             elif key in lower_is_better:
-                vals['jepa_better'] = vals['jepa'] < vals['baseline']
+                vals["jepa_better"] = vals["jepa"] < vals["baseline"]
 
         return comparison
 
@@ -121,12 +131,13 @@ class RepresentationComparator:
     def cka_similarity(self, jepa_reps, baseline_reps):
         """CKA similarity between JEPA and baseline representations."""
         from src.models.collapse import CollapseDiagnostics
+
         diag = CollapseDiagnostics()
         cka_lin = diag._cka_linear(jepa_reps, baseline_reps)
         cka_rbf = diag._cka_rbf(jepa_reps, baseline_reps)
         return {
-            'cka_linear': cka_lin,
-            'cka_rbf': cka_rbf,
+            "cka_linear": cka_lin,
+            "cka_rbf": cka_rbf,
         }
 
     def full_comparison_report(self, dataloader, max_batches=50):
@@ -141,11 +152,11 @@ class RepresentationComparator:
         """
         # 1. Extract representations
         reps = self.extract_representations(dataloader, max_batches)
-        jepa_reps = reps['jepa']
-        baseline_reps = reps['baseline']
+        jepa_reps = reps["jepa"]
+        baseline_reps = reps["baseline"]
 
         if jepa_reps.numel() == 0 or baseline_reps.numel() == 0:
-            return {'error': 'No representations extracted'}
+            return {"error": "No representations extracted"}
 
         # 2. Geometry comparison
         geometry = self.geometry_comparison(jepa_reps, baseline_reps)
@@ -154,14 +165,14 @@ class RepresentationComparator:
         cka = self.cka_similarity(jepa_reps, baseline_reps)
 
         # 4. Linguistic features
-        input_ids = reps['input_ids']
+        input_ids = reps["input_ids"]
         ling_features = self.extract_linguistic_features(input_ids)
 
         report = {
-            'geometry': geometry,
-            'cka': cka,
-            'linguistic_features': ling_features,
-            'n_samples': jepa_reps.size(0),
+            "geometry": geometry,
+            "cka": cka,
+            "linguistic_features": ling_features,
+            "n_samples": jepa_reps.size(0),
         }
 
         return report
@@ -182,19 +193,19 @@ class RepresentationComparator:
 
         # Token length feature (approximate via token ID magnitude)
         # Short tokens tend to have lower IDs in BPE
-        features['token_magnitude'] = (input_ids.float() / input_ids.float().max())
+        features["token_magnitude"] = input_ids.float() / input_ids.float().max()
 
         # Position feature
         B, T = input_ids.shape
         positions = torch.arange(T, dtype=torch.float32).unsqueeze(0).expand(B, T)
-        features['position'] = positions / T
+        features["position"] = positions / T
 
         # Boundary features
-        features['seq_start'] = torch.zeros(B, T)
-        features['seq_start'][:, :5] = 1.0
+        features["seq_start"] = torch.zeros(B, T)
+        features["seq_start"][:, :5] = 1.0
 
-        features['seq_end'] = torch.zeros(B, T)
-        features['seq_end'][:, -5:] = 1.0
+        features["seq_end"] = torch.zeros(B, T)
+        features["seq_end"][:, -5:] = 1.0
 
         return features
 
@@ -214,11 +225,15 @@ def extract_linguistic_features(tokens):
     if not tokens:
         return features
 
-    features['is_upper'] = 1.0 if (len(tokens) > 0 and len(tokens[0]) > 0 and tokens[0][0].isupper()) else 0.0
-    features['n_tokens'] = float(len(tokens))
-    features['avg_token_len'] = sum(len(t) for t in tokens) / max(len(tokens), 1)
-    features['has_digit'] = 1.0 if any(c.isdigit() for t in tokens for c in t) else 0.0
-    features['frac_upper'] = sum(1 for t in tokens if t[0].isupper() if len(t) > 0) / max(len(tokens), 1)
-    features['has_punct'] = 1.0 if any(not t.isalnum() for t in tokens) else 0.0
+    features["is_upper"] = (
+        1.0 if (len(tokens) > 0 and len(tokens[0]) > 0 and tokens[0][0].isupper()) else 0.0
+    )
+    features["n_tokens"] = float(len(tokens))
+    features["avg_token_len"] = sum(len(t) for t in tokens) / max(len(tokens), 1)
+    features["has_digit"] = 1.0 if any(c.isdigit() for t in tokens for c in t) else 0.0
+    features["frac_upper"] = sum(1 for t in tokens if t[0].isupper() if len(t) > 0) / max(
+        len(tokens), 1
+    )
+    features["has_punct"] = 1.0 if any(not t.isalnum() for t in tokens) else 0.0
 
     return features

@@ -3,9 +3,8 @@
 # Tests for PUC (Prediction Uncertainty Calibration) — mechanism #14
 
 import math
-import pytest
+
 import torch
-import torch.nn as nn
 
 from src.models.puc import PredictionUncertaintyCalibration
 
@@ -23,8 +22,11 @@ class TestPUCCore:
 
     def test_init_custom(self):
         puc = PredictionUncertaintyCalibration(
-            embed_dim=self.embed_dim, n_components=16,
-            eta=0.05, ema_beta=0.99, warmup_steps=200,
+            embed_dim=self.embed_dim,
+            n_components=16,
+            eta=0.05,
+            ema_beta=0.99,
+            warmup_steps=200,
         )
         assert puc.n_components == 16
         assert puc.eta == 0.05
@@ -33,18 +35,18 @@ class TestPUCCore:
     def test_forward_returns_loss_and_info(self):
         puc = PredictionUncertaintyCalibration(embed_dim=self.embed_dim)
         z = torch.randn(self.batch_size, self.seq_len, self.embed_dim)
-        loss, info = puc(z, step=1000)
+        _loss, info = puc(z, step=1000)
         assert isinstance(info, dict)
-        assert 'puc_loss' in info
-        assert 'puc_entropy' in info
-        assert 'puc_overconfidence' in info
+        assert "puc_loss" in info
+        assert "puc_entropy" in info
+        assert "puc_overconfidence" in info
 
     def test_loss_non_negative(self):
         """PUC loss is always ≥ 0."""
         puc = PredictionUncertaintyCalibration(embed_dim=self.embed_dim)
         for _ in range(10):
             z = torch.randn(self.batch_size, self.seq_len, self.embed_dim)
-            loss, info = puc(z, step=1000)
+            loss, _info = puc(z, step=1000)
             assert loss.item() >= -1e-6, f"PUC loss negative: {loss.item()}"
 
     def test_warmup_zero_loss(self):
@@ -53,7 +55,7 @@ class TestPUCCore:
         z = torch.randn(self.batch_size, self.seq_len, self.embed_dim)
         loss, info = puc(z, step=0)
         assert loss.item() < 1e-6
-        assert info.get('puc_warmup', False) is True
+        assert info.get("puc_warmup", False) is True
 
     def test_warmup_ramp(self):
         """PUC warmup factor ramps from 0 to 1."""
@@ -62,16 +64,16 @@ class TestPUCCore:
         _, info_0 = puc(z, step=0)
         _, info_500 = puc(z, step=500)
         _, info_2000 = puc(z, step=2000)
-        assert info_0['puc_warmup_factor'] < info_500['puc_warmup_factor']
-        assert abs(info_2000['puc_warmup_factor'] - 1.0) < 1e-6
+        assert info_0["puc_warmup_factor"] < info_500["puc_warmup_factor"]
+        assert abs(info_2000["puc_warmup_factor"] - 1.0) < 1e-6
 
     def test_overconfident_predictions_have_loss(self):
         """Collapsed (zero-variance) predictions should trigger PUC loss."""
         puc = PredictionUncertaintyCalibration(embed_dim=self.embed_dim, warmup_steps=0)
         # Constant predictions → zero variance → overconfident
         z_const = torch.ones(self.batch_size, self.seq_len, self.embed_dim) * 0.5
-        loss, info = puc(z_const, step=1000)
-        assert info['puc_overconfidence'] > 0 or info['puc_entropy_deficit'] > 0
+        _loss, info = puc(z_const, step=1000)
+        assert info["puc_overconfidence"] > 0 or info["puc_entropy_deficit"] > 0
 
     def test_diverse_predictions_lower_loss(self):
         """High-variance predictions should have lower PUC loss."""
@@ -81,14 +83,14 @@ class TestPUCCore:
         _, info_const = puc(z_const, step=1000)
         _, info_diverse = puc(z_diverse, step=2000)
         # Diverse predictions should have higher entropy
-        assert info_diverse['puc_entropy'] >= info_const['puc_entropy'] - 1.0
+        assert info_diverse["puc_entropy"] >= info_const["puc_entropy"] - 1.0
 
     def test_loss_finite(self):
         """PUC loss is always finite."""
         puc = PredictionUncertaintyCalibration(embed_dim=self.embed_dim)
         for scale in [0.01, 1.0, 100.0]:
             z = torch.randn(self.batch_size, self.seq_len, self.embed_dim) * scale
-            loss, info = puc(z, step=1000)
+            loss, _info = puc(z, step=1000)
             assert torch.isfinite(loss) if torch.is_tensor(loss) else math.isfinite(loss)
 
     def test_gradient_flows(self):
@@ -119,7 +121,7 @@ class TestPUCTheorems:
         _, info = puc(z, step=1000)
         # Entropy can be negative in high dims (this is fine for differential entropy)
         # But eigenvalues should be positive
-        assert info['puc_min_eigenvalue'] > -1e-6
+        assert info["puc_min_eigenvalue"] > -1e-6
 
     def test_log_det_barrier_convex(self):
         """Log-determinant barrier -log det(Σ) is convex on PD matrices."""
@@ -152,7 +154,7 @@ class TestPUCTheorems:
 
         # The entropy deficit upper-bounds the KL divergence
         # (up to constants that depend on the target distribution)
-        entropy_deficit = info['puc_entropy_deficit']
+        entropy_deficit = info["puc_entropy_deficit"]
         # If entropy_deficit > 0, predictions are overconfident
         # and KL divergence to isotropic Gaussian is bounded below by deficit
         if entropy_deficit > 0:
@@ -175,7 +177,7 @@ class TestPUCTheorems:
         _, info_me = puc(z_max_ent, step=2000)
 
         # Max-entropy predictions should have higher entropy
-        assert info_me['puc_entropy'] >= info_oc['puc_entropy'] - 2.0
+        assert info_me["puc_entropy"] >= info_oc["puc_entropy"] - 2.0
 
 
 class TestPUCDiagnostics:
@@ -189,10 +191,16 @@ class TestPUCDiagnostics:
         _, info = puc(z, step=1000)
 
         required_keys = [
-            'puc_loss', 'puc_entropy', 'puc_target_entropy',
-            'puc_entropy_deficit', 'puc_overconfidence',
-            'puc_warmup_factor', 'puc_min_eigenvalue', 'puc_max_eigenvalue',
-            'puc_log_det', 'puc_n_components',
+            "puc_loss",
+            "puc_entropy",
+            "puc_target_entropy",
+            "puc_entropy_deficit",
+            "puc_overconfidence",
+            "puc_warmup_factor",
+            "puc_min_eigenvalue",
+            "puc_max_eigenvalue",
+            "puc_log_det",
+            "puc_n_components",
         ]
         for key in required_keys:
             assert key in info, f"Missing diagnostic: {key}"
@@ -217,9 +225,9 @@ class TestPUCCheckpoint:
         puc(z, step=500)
 
         ckpt = puc.checkpoint_dict()
-        assert 'running_mean' in ckpt
-        assert 'running_eigenvalues' in ckpt
-        assert 'proj_vectors' in ckpt
+        assert "running_mean" in ckpt
+        assert "running_eigenvalues" in ckpt
+        assert "proj_vectors" in ckpt
 
         # Restore
         puc2 = PredictionUncertaintyCalibration(embed_dim=self.embed_dim)
@@ -235,7 +243,7 @@ class TestPUCCheckpoint:
             puc(z, step=step)
 
         ckpt = puc.checkpoint_dict()
-        assert ckpt['total_steps'].item() == 10  # 10 calls
+        assert ckpt["total_steps"].item() == 10  # 10 calls
 
 
 class TestPUCShapes:
@@ -245,19 +253,19 @@ class TestPUCShapes:
         for dim in [32, 64, 128, 256]:
             puc = PredictionUncertaintyCalibration(embed_dim=dim)
             z = torch.randn(2, 8, dim)
-            loss, info = puc(z, step=1000)
+            _loss, _info = puc(z, step=1000)
             assert puc.running_mean.shape == (dim,)
 
     def test_various_batch_sizes(self):
         puc = PredictionUncertaintyCalibration(embed_dim=64)
         for bs in [1, 4, 16]:
             z = torch.randn(bs, 16, 64)
-            loss, info = puc(z, step=1000)
+            _loss, info = puc(z, step=1000)
             assert isinstance(info, dict)
 
     def test_various_seq_lengths(self):
         puc = PredictionUncertaintyCalibration(embed_dim=64)
         for sl in [1, 32, 128]:
             z = torch.randn(4, sl, 64)
-            loss, info = puc(z, step=1000)
+            _loss, info = puc(z, step=1000)
             assert isinstance(info, dict)

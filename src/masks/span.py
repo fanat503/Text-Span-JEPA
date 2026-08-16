@@ -3,8 +3,8 @@
 # Span masking: contiguous block masking for text sequences
 # Adapted from I-JEPA multiblock masking + SpanBERT span selection
 
-import torch
 import numpy as np
+import torch
 
 
 class SpanMaskCollator:
@@ -53,8 +53,7 @@ class SpanMaskCollator:
         for _ in range(max_spans):
             if num_masked >= target_num_masked:
                 break
-            span_len = np.random.randint(self.span_length_range[0],
-                                          self.span_length_range[1] + 1)
+            span_len = np.random.randint(self.span_length_range[0], self.span_length_range[1] + 1)
             start = np.random.randint(0, max(1, seq_len - span_len + 1))
             end = min(start + span_len, seq_len)
             for i in range(start, end):
@@ -66,14 +65,21 @@ class SpanMaskCollator:
     def __call__(self, batch):
         """Collate a batch and generate span masks."""
         if isinstance(batch[0], dict):
-            input_ids_list = [item['input_ids'] for item in batch]
+            input_ids_list = [item["input_ids"] for item in batch]
         else:
             input_ids_list = batch
 
         input_ids = torch.nn.utils.rnn.pad_sequence(
-            [x.clone().detach() if isinstance(x, torch.Tensor) else torch.tensor(x, dtype=torch.long)
-             for x in input_ids_list],
-            batch_first=True, padding_value=0,
+            [
+                (
+                    x.clone().detach()
+                    if isinstance(x, torch.Tensor)
+                    else torch.tensor(x, dtype=torch.long)
+                )
+                for x in input_ids_list
+            ],
+            batch_first=True,
+            padding_value=0,
         )
         B, T = input_ids.shape
 
@@ -96,7 +102,7 @@ class SpanMaskCollator:
         # would double-advance the curriculum.
 
         return {
-            'masked_input_ids': masked_input_ids,
-            'original_input_ids': original_input_ids,
-            'mask_positions': mask_positions,
+            "masked_input_ids": masked_input_ids,
+            "original_input_ids": original_input_ids,
+            "mask_positions": mask_positions,
         }

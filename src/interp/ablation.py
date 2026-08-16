@@ -21,10 +21,9 @@
 # - No decoder (pure latent prediction, no reconstruction)
 
 import copy
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, List, Optional
+from torch import nn
 
 
 class AblationConfig:
@@ -36,28 +35,37 @@ class AblationConfig:
     def __init__(self, name: str, **kwargs):
         self.name = name
         # Components that can be ablated
-        self.use_predictor = kwargs.get('use_predictor', True)
-        self.use_future_loss = kwargs.get('use_future_loss', True)
-        self.use_variance_reg = kwargs.get('use_variance_reg', True)
-        self.use_covariance_reg = kwargs.get('use_covariance_reg', True)
-        self.use_iterative_refinement = kwargs.get('use_iterative_refinement', True)
-        self.use_ema_target = kwargs.get('use_ema_target', True)
-        self.use_decoder = kwargs.get('use_decoder', True)
-        self.use_target_centering = kwargs.get('use_target_centering', True)
-        self.use_span_loss = kwargs.get('use_span_loss', True)
+        self.use_predictor = kwargs.get("use_predictor", True)
+        self.use_future_loss = kwargs.get("use_future_loss", True)
+        self.use_variance_reg = kwargs.get("use_variance_reg", True)
+        self.use_covariance_reg = kwargs.get("use_covariance_reg", True)
+        self.use_iterative_refinement = kwargs.get("use_iterative_refinement", True)
+        self.use_ema_target = kwargs.get("use_ema_target", True)
+        self.use_decoder = kwargs.get("use_decoder", True)
+        self.use_target_centering = kwargs.get("use_target_centering", True)
+        self.use_span_loss = kwargs.get("use_span_loss", True)
 
     def describe(self):
         """Human-readable description of what's ablated."""
         parts = []
-        if not self.use_predictor: parts.append("no predictor")
-        if not self.use_future_loss: parts.append("no future loss")
-        if not self.use_variance_reg: parts.append("no VICReg variance")
-        if not self.use_covariance_reg: parts.append("no VICReg covariance")
-        if not self.use_iterative_refinement: parts.append("no iterative refinement")
-        if not self.use_ema_target: parts.append("no EMA target")
-        if not self.use_decoder: parts.append("no decoder")
-        if not self.use_target_centering: parts.append("no target centering")
-        if not self.use_span_loss: parts.append("no span loss")
+        if not self.use_predictor:
+            parts.append("no predictor")
+        if not self.use_future_loss:
+            parts.append("no future loss")
+        if not self.use_variance_reg:
+            parts.append("no VICReg variance")
+        if not self.use_covariance_reg:
+            parts.append("no VICReg covariance")
+        if not self.use_iterative_refinement:
+            parts.append("no iterative refinement")
+        if not self.use_ema_target:
+            parts.append("no EMA target")
+        if not self.use_decoder:
+            parts.append("no decoder")
+        if not self.use_target_centering:
+            parts.append("no target centering")
+        if not self.use_span_loss:
+            parts.append("no span loss")
         if not parts:
             return "full model"
         return " + ".join(parts)
@@ -65,21 +73,27 @@ class AblationConfig:
 
 # Standard ablation configs
 ABLATION_CONFIGS = {
-    'full': AblationConfig('full'),
-    'no_predictor': AblationConfig('no_predictor', use_predictor=False, use_iterative_refinement=False),
-    'no_future_loss': AblationConfig('no_future_loss', use_future_loss=False),
-    'no_vicreg': AblationConfig('no_vicreg', use_variance_reg=False, use_covariance_reg=False),
-    'no_variance_only': AblationConfig('no_variance_only', use_variance_reg=False),
-    'no_covariance_only': AblationConfig('no_covariance_only', use_covariance_reg=False),
-    'no_refinement': AblationConfig('no_refinement', use_iterative_refinement=False),
-    'no_ema': AblationConfig('no_ema', use_ema_target=False),
-    'no_decoder': AblationConfig('no_decoder', use_decoder=False),
-    'no_centering': AblationConfig('no_centering', use_target_centering=False),
-    'no_span_loss': AblationConfig('no_span_loss', use_span_loss=False),
-    'predictor_only': AblationConfig('predictor_only',
-                                      use_future_loss=False, use_decoder=False,
-                                      use_variance_reg=False, use_covariance_reg=False,
-                                      use_target_centering=False),
+    "full": AblationConfig("full"),
+    "no_predictor": AblationConfig(
+        "no_predictor", use_predictor=False, use_iterative_refinement=False
+    ),
+    "no_future_loss": AblationConfig("no_future_loss", use_future_loss=False),
+    "no_vicreg": AblationConfig("no_vicreg", use_variance_reg=False, use_covariance_reg=False),
+    "no_variance_only": AblationConfig("no_variance_only", use_variance_reg=False),
+    "no_covariance_only": AblationConfig("no_covariance_only", use_covariance_reg=False),
+    "no_refinement": AblationConfig("no_refinement", use_iterative_refinement=False),
+    "no_ema": AblationConfig("no_ema", use_ema_target=False),
+    "no_decoder": AblationConfig("no_decoder", use_decoder=False),
+    "no_centering": AblationConfig("no_centering", use_target_centering=False),
+    "no_span_loss": AblationConfig("no_span_loss", use_span_loss=False),
+    "predictor_only": AblationConfig(
+        "predictor_only",
+        use_future_loss=False,
+        use_decoder=False,
+        use_variance_reg=False,
+        use_covariance_reg=False,
+        use_target_centering=False,
+    ),
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -87,25 +101,37 @@ ABLATION_CONFIGS = {
 # ═══════════════════════════════════════════════════════════════
 
 MODEL_SIZE_CONFIGS = {
-    'tiny': {
-        'embed_dim': 256, 'encoder_depth': 4, 'num_heads': 4,
-        'predictor_embed_dim': 128, 'predictor_depth': 2,
-        'mlp_ratio': 4.0,
+    "tiny": {
+        "embed_dim": 256,
+        "encoder_depth": 4,
+        "num_heads": 4,
+        "predictor_embed_dim": 128,
+        "predictor_depth": 2,
+        "mlp_ratio": 4.0,
     },
-    'small': {
-        'embed_dim': 512, 'encoder_depth': 8, 'num_heads': 8,
-        'predictor_embed_dim': 256, 'predictor_depth': 4,
-        'mlp_ratio': 4.0,
+    "small": {
+        "embed_dim": 512,
+        "encoder_depth": 8,
+        "num_heads": 8,
+        "predictor_embed_dim": 256,
+        "predictor_depth": 4,
+        "mlp_ratio": 4.0,
     },
-    'base': {
-        'embed_dim': 768, 'encoder_depth': 12, 'num_heads': 12,
-        'predictor_embed_dim': 384, 'predictor_depth': 6,
-        'mlp_ratio': 4.0,
+    "base": {
+        "embed_dim": 768,
+        "encoder_depth": 12,
+        "num_heads": 12,
+        "predictor_embed_dim": 384,
+        "predictor_depth": 6,
+        "mlp_ratio": 4.0,
     },
-    'large': {
-        'embed_dim': 1024, 'encoder_depth': 16, 'num_heads': 16,
-        'predictor_embed_dim': 512, 'predictor_depth': 8,
-        'mlp_ratio': 4.0,
+    "large": {
+        "embed_dim": 1024,
+        "encoder_depth": 16,
+        "num_heads": 16,
+        "predictor_embed_dim": 512,
+        "predictor_depth": 8,
+        "mlp_ratio": 4.0,
     },
 }
 
@@ -113,11 +139,11 @@ MODEL_SIZE_CONFIGS = {
 ABLATION_MATRIX = {}
 for abl_name, abl_config in ABLATION_CONFIGS.items():
     for size_name, size_config in MODEL_SIZE_CONFIGS.items():
-        key = f'{abl_name}_{size_name}'
+        key = f"{abl_name}_{size_name}"
         ABLATION_MATRIX[key] = {
-            'ablation': abl_config,
-            'model_size': size_name,
-            'model_config': size_config,
+            "ablation": abl_config,
+            "model_size": size_name,
+            "model_config": size_config,
         }
 
 
@@ -135,8 +161,9 @@ class AblatedModel(nn.Module):
         self.model = base_model
         self.config = ablation_config
 
-    def forward(self, masked_input_ids, original_input_ids, mask_positions,
-                current_step=0, total_steps=1):
+    def forward(
+        self, masked_input_ids, original_input_ids, mask_positions, current_step=0, total_steps=1
+    ):
         """Forward pass with ablation.
 
         Args aligned with TextSpanJEPA.compute_loss_with_targets convention:
@@ -150,8 +177,11 @@ class AblatedModel(nn.Module):
             self.model.predictor.num_refine_steps = 0
 
         result = self.model.compute_loss_with_targets(
-            masked_input_ids, original_input_ids, mask_positions,
-            current_step=current_step, total_steps=total_steps,
+            masked_input_ids,
+            original_input_ids,
+            mask_positions,
+            current_step=current_step,
+            total_steps=total_steps,
         )
 
         # Restore refinement steps
@@ -162,33 +192,32 @@ class AblatedModel(nn.Module):
             loss, info, diag = result
         elif len(result) == 2:
             loss, info = result
-            diag = {}
         else:
-            loss, info, diag = result[0], {}, {}
+            loss, info, _diag = result[0], {}, {}
 
         # Zero out ablated loss components.
         # FIX: subtract the weighted contribution (lambda * loss), not just the raw loss.
         # The total_loss already includes lambda * loss_component,
         # so we subtract the same amount to neutralize it.
         cfg = self.model.config
-        if not self.config.use_future_loss and 'loss_future' in info:
-            loss = loss - cfg.lambda_future * info['loss_future']
+        if not self.config.use_future_loss and "loss_future" in info:
+            loss = loss - cfg.lambda_future * info["loss_future"]
 
-        if not self.config.use_decoder and 'loss_decoder' in info:
-            loss = loss - cfg.lambda_decoder * info['loss_decoder']
+        if not self.config.use_decoder and "loss_decoder" in info:
+            loss = loss - cfg.lambda_decoder * info["loss_decoder"]
 
-        if not self.config.use_span_loss and 'loss_span' in info:
-            loss = loss - cfg.lambda_span * info['loss_span']
+        if not self.config.use_span_loss and "loss_span" in info:
+            loss = loss - cfg.lambda_span * info["loss_span"]
 
-        if not self.config.use_variance_reg and 'loss_variance' in info:
-            loss = loss - cfg.lambda_variance * info['loss_variance']
+        if not self.config.use_variance_reg and "loss_variance" in info:
+            loss = loss - cfg.lambda_variance * info["loss_variance"]
 
-        if not self.config.use_covariance_reg and 'loss_covariance' in info:
-            loss = loss - cfg.lambda_covariance * info['loss_covariance']
+        if not self.config.use_covariance_reg and "loss_covariance" in info:
+            loss = loss - cfg.lambda_covariance * info["loss_covariance"]
 
         # Record ablation info
-        info['ablation'] = self.config.name
-        info['ablation_desc'] = self.config.describe()
+        info["ablation"] = self.config.name
+        info["ablation_desc"] = self.config.describe()
 
         return loss, info
 
@@ -196,8 +225,9 @@ class AblatedModel(nn.Module):
     def ablate_ema(self):
         """If EMA is ablated, copy online weights to target (no EMA)."""
         if not self.config.use_ema_target:
-            for p_q, p_k in zip(self.model.encoder.parameters(),
-                                self.model.target_encoder.parameters()):
+            for p_q, p_k in zip(
+                self.model.encoder.parameters(), self.model.target_encoder.parameters()
+            ):
                 p_k.data.copy_(p_q.data)
 
     @torch.no_grad()
@@ -216,7 +246,7 @@ class AblationStudy:
     4. Compare to full model
     """
 
-    def __init__(self, base_model, train_fn, device='cpu'):
+    def __init__(self, base_model, train_fn, device="cpu"):
         """
         Args:
             base_model: TextSpanJEPA model
@@ -252,10 +282,10 @@ class AblationStudy:
         loss_history = self.train_fn(ablated, n_steps)
 
         return {
-            'ablation': ablation_name,
-            'description': config.describe(),
-            'final_loss': loss_history[-1] if loss_history else float('inf'),
-            'loss_history': loss_history,
+            "ablation": ablation_name,
+            "description": config.describe(),
+            "final_loss": loss_history[-1] if loss_history else float("inf"),
+            "loss_history": loss_history,
         }
 
     def run_all(self, n_steps=1000, ablations=None):
@@ -273,13 +303,13 @@ class AblationStudy:
 
         results = {}
         for name in ablations:
-            if name == 'full':
+            if name == "full":
                 # Full model — just extract representations, no training needed
                 results[name] = {
-                    'ablation': 'full',
-                    'description': 'full model',
-                    'final_loss': 0,
-                    'loss_history': [],
+                    "ablation": "full",
+                    "description": "full model",
+                    "final_loss": 0,
+                    "loss_history": [],
                 }
                 continue
 
@@ -289,14 +319,13 @@ class AblationStudy:
                 results[name] = result
             except Exception as e:
                 results[name] = {
-                    'ablation': name,
-                    'error': str(e),
+                    "ablation": name,
+                    "error": str(e),
                 }
 
         return results
 
-    def run_scaling_ablations(self, n_steps=500, model_sizes=None,
-                               ablations=None):
+    def run_scaling_ablations(self, n_steps=500, model_sizes=None, ablations=None):
         """Run ablations at multiple model sizes.
 
         THE KEY EXPERIMENT for Oral: does JEPA's advantage scale?
@@ -314,10 +343,16 @@ class AblationStudy:
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
 
         if model_sizes is None:
-            model_sizes = ['tiny', 'small', 'base']
+            model_sizes = ["tiny", "small", "base"]
         if ablations is None:
-            ablations = ['full', 'no_predictor', 'no_future_loss', 'no_vicreg',
-                         'no_refinement', 'no_decoder']
+            ablations = [
+                "full",
+                "no_predictor",
+                "no_future_loss",
+                "no_vicreg",
+                "no_refinement",
+                "no_decoder",
+            ]
 
         results = {}
         for size_name in model_sizes:
@@ -326,7 +361,8 @@ class AblationStudy:
 
             # Create model at this size
             cfg = TextSpanJEPAConfig(
-                vocab_size=1000, max_seq_len=64,
+                vocab_size=1000,
+                max_seq_len=64,
                 **size_config,
                 future_offsets=(1, 4),
                 num_refine_steps=3,
@@ -336,12 +372,12 @@ class AblationStudy:
             print(f"  Parameters: {n_params:,}")
 
             for abl_name in ablations:
-                key = f'{abl_name}_{size_name}'
+                key = f"{abl_name}_{size_name}"
                 abl_config = ABLATION_CONFIGS.get(abl_name)
                 if abl_config is None:
                     continue
 
-                print(f"  Ablation: {abl_name}...", end=' ')
+                print(f"  Ablation: {abl_name}...", end=" ")
                 try:
                     model_copy = copy.deepcopy(model)
                     ablated = AblatedModel(model_copy, abl_config)
@@ -349,19 +385,19 @@ class AblationStudy:
                     loss_history = self.train_fn(ablated, n_steps)
 
                     results[key] = {
-                        'ablation': abl_name,
-                        'model_size': size_name,
-                        'n_params': n_params,
-                        'description': abl_config.describe(),
-                        'final_loss': loss_history[-1] if loss_history else float('inf'),
-                        'loss_history': loss_history,
+                        "ablation": abl_name,
+                        "model_size": size_name,
+                        "n_params": n_params,
+                        "description": abl_config.describe(),
+                        "final_loss": loss_history[-1] if loss_history else float("inf"),
+                        "loss_history": loss_history,
                     }
                     print(f"final loss: {results[key]['final_loss']:.4f}")
                 except Exception as e:
                     results[key] = {
-                        'ablation': abl_name,
-                        'model_size': size_name,
-                        'error': str(e),
+                        "ablation": abl_name,
+                        "model_size": size_name,
+                        "error": str(e),
                     }
                     print(f"ERROR: {e}")
 
@@ -378,8 +414,8 @@ class AblationStudy:
         Returns:
             dict with per-ablation CKA and geometry comparison
         """
-        from src.models.collapse import CollapseDiagnostics
         from src.interp.representation_geometry import RepresentationGeometry
+        from src.models.collapse import CollapseDiagnostics
 
         diag = CollapseDiagnostics()
         full_geom = RepresentationGeometry.compute_all(full_model_reps)
@@ -390,10 +426,9 @@ class AblationStudy:
             geom = RepresentationGeometry.compute_all(reps)
 
             comparisons[name] = {
-                'cka_to_full': cka,
-                'geometry': geom,
-                'geometry_diff': {k: geom.get(k, 0) - full_geom.get(k, 0)
-                                  for k in full_geom},
+                "cka_to_full": cka,
+                "geometry": geom,
+                "geometry_diff": {k: geom.get(k, 0) - full_geom.get(k, 0) for k in full_geom},
             }
 
         return comparisons

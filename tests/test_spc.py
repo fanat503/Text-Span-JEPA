@@ -2,7 +2,6 @@
 # Licensed under the Apache License, Version 2.0
 # Tests for SPC (Spectral Predictive Coding) — mechanism #9
 
-import math
 import pytest
 import torch
 import torch.nn.functional as F
@@ -11,18 +10,21 @@ import torch.nn.functional as F
 @pytest.fixture
 def spc_module():
     from src.models.spc import SpectralPredictiveCoding
-    return SpectralPredictiveCoding(embed_dim=64, n_bands=8, init='dct')
+
+    return SpectralPredictiveCoding(embed_dim=64, n_bands=8, init="dct")
 
 
 @pytest.fixture
 def spc_random():
     from src.models.spc import SpectralPredictiveCoding
-    return SpectralPredictiveCoding(embed_dim=64, n_bands=8, init='random')
+
+    return SpectralPredictiveCoding(embed_dim=64, n_bands=8, init="random")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Core functionality tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestSPCCore:
     """Core SPC functionality."""
@@ -40,18 +42,21 @@ class TestSPCCore:
     def test_init_invalid_mode(self):
         """Invalid init mode raises ValueError."""
         from src.models.spc import SpectralPredictiveCoding
+
         with pytest.raises(ValueError):
-            SpectralPredictiveCoding(embed_dim=64, n_bands=8, init='fourier')
+            SpectralPredictiveCoding(embed_dim=64, n_bands=8, init="fourier")
 
     def test_init_dim_mismatch(self):
         """embed_dim not divisible by n_bands raises AssertionError."""
         from src.models.spc import SpectralPredictiveCoding
+
         with pytest.raises(AssertionError):
             SpectralPredictiveCoding(embed_dim=64, n_bands=7)
 
     def test_dct_basis_orthonormal(self):
         """DCT basis is orthonormal."""
         from src.models.spc import _dct_basis
+
         basis = _dct_basis(64)
         gram = basis.T @ basis
         eye = torch.eye(64)
@@ -60,6 +65,7 @@ class TestSPCCore:
     def test_dct_basis_shape(self):
         """DCT basis has correct shape."""
         from src.models.spc import _dct_basis
+
         basis = _dct_basis(64)
         assert basis.shape == (64, 64)
 
@@ -76,28 +82,28 @@ class TestSPCCore:
         """Forward works with 3D input (B, T, D)."""
         z_pred = torch.randn(2, 8, 64)
         z_target = torch.randn(2, 8, 64)
-        loss, info = spc_module(z_pred, z_target)
+        loss, _info = spc_module(z_pred, z_target)
         assert loss.dim() == 0
         assert loss.item() >= 0
 
     def test_forward_zero_residual(self, spc_module):
         """Perfect prediction gives zero loss."""
         z = torch.randn(4, 64)
-        loss, info = spc_module(z, z)
+        loss, _info = spc_module(z, z)
         assert loss.item() < 1e-5
 
     def test_forward_positive_loss(self, spc_module):
         """Imperfect prediction gives positive loss."""
         z_pred = torch.randn(4, 64)
         z_target = torch.randn(4, 64)
-        loss, info = spc_module(z_pred, z_target)
+        loss, _info = spc_module(z_pred, z_target)
         assert loss.item() > 0
 
     def test_loss_differentiable(self, spc_module):
         """Loss is differentiable w.r.t. z_pred."""
         z_pred = torch.randn(4, 64, requires_grad=True)
         z_target = torch.randn(4, 64)
-        loss, info = spc_module(z_pred, z_target)
+        loss, _info = spc_module(z_pred, z_target)
         loss.backward()
         assert z_pred.grad is not None
         assert z_pred.grad.abs().sum() > 0
@@ -106,7 +112,7 @@ class TestSPCCore:
         """z_target receives no gradient (detached internally)."""
         z_pred = torch.randn(4, 64)
         z_target = torch.randn(4, 64, requires_grad=True)
-        loss, info = spc_module(z_pred, z_target)
+        loss, _info = spc_module(z_pred, z_target)
         loss.backward()
         assert z_target.grad is None
 
@@ -114,6 +120,7 @@ class TestSPCCore:
 # ═══════════════════════════════════════════════════════════════════════════
 #  Band weight tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestSPCBandWeights:
     """Band weight constraint and behavior."""
@@ -149,7 +156,7 @@ class TestSPCBandWeights:
         # Add noise only to high-frequency bands
         z_target[:, 32:] += torch.randn(32, 32) * 5.0
 
-        loss, info = spc_module(z_pred, z_target)
+        loss, _info = spc_module(z_pred, z_target)
         loss.backward()
 
         # Step log weights
@@ -164,6 +171,7 @@ class TestSPCBandWeights:
 # ═══════════════════════════════════════════════════════════════════════════
 #  Stiefel retraction tests
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestSPCStiefel:
     """Stiefel manifold constraints for frequency basis."""
@@ -202,6 +210,7 @@ class TestSPCStiefel:
 #  Theorem tests (Information-Proportional Capacity Allocation)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSPCTheorem:
     """Mathematical theorem verification for SPC."""
 
@@ -227,7 +236,7 @@ class TestSPCTheorem:
         z_target = torch.randn(16, 64)
 
         # SPC loss with equal weights
-        loss_spc, info = spc_module(z_pred, z_target)
+        loss_spc, _info = spc_module(z_pred, z_target)
 
         # Uniform MSE
         loss_mse = F.mse_loss(z_pred, z_target.detach())
@@ -254,7 +263,7 @@ class TestSPCTheorem:
         # Add large noise to high-frequency components
         z_target[:, 32:] += torch.randn(16, 32) * 10.0
 
-        loss, info = spc_module(z_pred, z_target)
+        loss, _info = spc_module(z_pred, z_target)
         loss.backward()
 
         # The gradient of loss w.r.t. log_band_weights should
@@ -275,9 +284,11 @@ class TestSPCTheorem:
         high variance × predictability bands."""
         # Set up running statistics manually
         spc_module.running_residual_vars.copy_(
-            torch.tensor([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0]))
+            torch.tensor([1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0])
+        )
         spc_module.running_predictability.copy_(
-            torch.tensor([0.9, 0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.1]))
+            torch.tensor([0.9, 0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.1])
+        )
 
         w_before = spc_module.get_band_weights().clone()
         spc_module.adapt_weights_to_predictability()
@@ -297,6 +308,7 @@ class TestSPCTheorem:
 #  Band analysis tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSPCAnalysis:
     """Band analysis diagnostics."""
 
@@ -306,19 +318,19 @@ class TestSPCAnalysis:
         z_target = torch.randn(16, 64)
         analysis = spc_module.compute_band_analysis(z_pred, z_target)
 
-        assert analysis['n_bands'] == 8
-        assert len(analysis['predictabilities']) == 8
-        assert len(analysis['snrs']) == 8
-        assert len(analysis['band_weights']) == 8
+        assert analysis["n_bands"] == 8
+        assert len(analysis["predictabilities"]) == 8
+        assert len(analysis["snrs"]) == 8
+        assert len(analysis["band_weights"]) == 8
         # Predictability should be in [0, 1]
-        for p in analysis['predictabilities']:
+        for p in analysis["predictabilities"]:
             assert 0 <= p <= 1.01  # small tolerance
 
     def test_perfect_prediction_predictability(self, spc_module):
         """Perfect prediction gives predictability = 1 for all bands."""
         z = torch.randn(16, 64)
         analysis = spc_module.compute_band_analysis(z, z)
-        for p in analysis['predictabilities']:
+        for p in analysis["predictabilities"]:
             assert p > 0.99
 
     def test_orthogonal_prediction_predictability(self, spc_module):
@@ -328,7 +340,7 @@ class TestSPCAnalysis:
         z_target = torch.randn(16, 64)
         analysis = spc_module.compute_band_analysis(z_pred, z_target)
         # Average predictability should be near 0 for random prediction
-        avg_pred = sum(analysis['predictabilities']) / len(analysis['predictabilities'])
+        avg_pred = sum(analysis["predictabilities"]) / len(analysis["predictabilities"])
         assert avg_pred < 0.5  # relaxed for random data
 
 
@@ -336,21 +348,23 @@ class TestSPCAnalysis:
 #  Integration tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSPCIntegration:
     """Integration with other mechanisms and training loop."""
 
     def test_spc_with_jawp(self, spc_module):
         """SPC works together with JAWP workspace."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=1, k_end=8)
 
         z_pred = torch.randn(4, 64)
         z_target = torch.randn(4, 64)
 
         # JAWP loss
-        jawp_loss, jawp_info = jawp.compute_loss(z_pred, z_target)
+        jawp_loss, _jawp_info = jawp.compute_loss(z_pred, z_target)
         # SPC loss
-        spc_loss, spc_info = spc_module(z_pred, z_target)
+        spc_loss, _spc_info = spc_module(z_pred, z_target)
 
         # Combined loss
         total = jawp_loss + spc_loss
@@ -366,7 +380,7 @@ class TestSPCIntegration:
         for _ in range(5):
             z_pred = torch.randn(8, 64)
             z_target = torch.randn(8, 64)
-            loss, info = spc_module(z_pred, z_target)
+            loss, _info = spc_module(z_pred, z_target)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -395,7 +409,8 @@ class TestSPCIntegration:
 
         # Load into new module
         from src.models.spc import SpectralPredictiveCoding
-        spc_new = SpectralPredictiveCoding(embed_dim=64, n_bands=8, init='dct')
+
+        spc_new = SpectralPredictiveCoding(embed_dim=64, n_bands=8, init="dct")
         spc_new.load_state_dict(torch.load(buffer, weights_only=True))
 
         # Verify same output
@@ -410,10 +425,11 @@ class TestSPCIntegration:
         if not torch.cuda.is_available():
             pytest.skip("No GPU available for bfloat16 test")
         from src.models.spc import SpectralPredictiveCoding
+
         spc = SpectralPredictiveCoding(embed_dim=64, n_bands=8).cuda().bfloat16()
-        z_pred = torch.randn(2, 64, device='cuda', dtype=torch.bfloat16)
-        z_target = torch.randn(2, 64, device='cuda', dtype=torch.bfloat16)
-        loss, info = spc(z_pred, z_target)
+        z_pred = torch.randn(2, 64, device="cuda", dtype=torch.bfloat16)
+        z_target = torch.randn(2, 64, device="cuda", dtype=torch.bfloat16)
+        loss, _info = spc(z_pred, z_target)
         assert loss.item() >= 0
 
 
@@ -421,12 +437,14 @@ class TestSPCIntegration:
 #  Config tests
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestSPCConfig:
     """Configuration and hyperparameter validation."""
 
     def test_different_n_bands(self):
         """SPC works with different n_bands values."""
         from src.models.spc import SpectralPredictiveCoding
+
         for n_bands in [2, 4, 8, 16, 32]:
             spc = SpectralPredictiveCoding(embed_dim=64, n_bands=n_bands)
             z = torch.randn(4, 64)
@@ -436,7 +454,8 @@ class TestSPCConfig:
     def test_different_init_modes(self):
         """Both init modes produce valid SPC modules."""
         from src.models.spc import SpectralPredictiveCoding
-        for init in ['dct', 'random']:
+
+        for init in ["dct", "random"]:
             spc = SpectralPredictiveCoding(embed_dim=64, n_bands=8, init=init)
             z = torch.randn(4, 64)
             loss, _ = spc(z, z)
@@ -445,8 +464,9 @@ class TestSPCConfig:
     def test_large_embed_dim(self):
         """SPC scales to production embed_dim (768)."""
         from src.models.spc import SpectralPredictiveCoding
-        spc = SpectralPredictiveCoding(embed_dim=768, n_bands=8, init='dct')
+
+        spc = SpectralPredictiveCoding(embed_dim=768, n_bands=8, init="dct")
         z = torch.randn(2, 768)
         loss, info = spc(z, z + torch.randn(2, 768) * 0.1)
         assert loss.item() >= 0
-        assert 'spc_band_weights' in info
+        assert "spc_band_weights" in info

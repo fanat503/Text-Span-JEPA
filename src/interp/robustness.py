@@ -18,11 +18,8 @@
 # - Noise injection: add Gaussian noise to embeddings
 # - Span corruption: corrupt spans (JEPA-specific: trained for this)
 
-import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, List, Optional, Tuple
 
 
 class RepresentationRobustness:
@@ -37,7 +34,7 @@ class RepresentationRobustness:
     JEPA should maintain HIGHER CKA under perturbation (more robust).
     """
 
-    def __init__(self, model, device='cpu'):
+    def __init__(self, model, device="cpu"):
         """
         Args:
             model: model with .encoder attribute
@@ -49,16 +46,16 @@ class RepresentationRobustness:
     @torch.no_grad()
     def get_representations(self, input_ids):
         """Get pooled representations from model."""
-        if hasattr(self.model, 'encoder'):
+        if hasattr(self.model, "encoder"):
             h, _ = self.model.encoder(input_ids.to(self.device))
         else:
             h = self.model(input_ids.to(self.device))
         return h.mean(dim=1).cpu()
 
     @torch.no_grad()
-    def perturbation_curve(self, input_ids, perturbation_fn,
-                           intensities=(0.1, 0.2, 0.3, 0.5, 0.7),
-                           n_trials=3):
+    def perturbation_curve(
+        self, input_ids, perturbation_fn, intensities=(0.1, 0.2, 0.3, 0.5, 0.7), n_trials=3
+    ):
         """Compute robustness curve for one perturbation type.
 
         Args:
@@ -70,8 +67,8 @@ class RepresentationRobustness:
         Returns:
             dict with per-intensity CKA and metric degradation
         """
-        from src.models.collapse import CollapseDiagnostics
         from src.interp.representation_geometry import RepresentationGeometry
+        from src.models.collapse import CollapseDiagnostics
 
         diag = CollapseDiagnostics()
         clean_reps = self.get_representations(input_ids)
@@ -96,21 +93,23 @@ class RepresentationRobustness:
 
                 # Geometry degradation
                 pert_geom = RepresentationGeometry.compute_all(perturbed_reps)
-                eff_dim_drops.append(clean_geom['effective_dimension'] - pert_geom['effective_dimension'])
-                anisotropy_changes.append(pert_geom['anisotropy'] - clean_geom['anisotropy'])
+                eff_dim_drops.append(
+                    clean_geom["effective_dimension"] - pert_geom["effective_dimension"]
+                )
+                anisotropy_changes.append(pert_geom["anisotropy"] - clean_geom["anisotropy"])
 
             results[intensity] = {
-                'cka_mean': sum(cka_values) / len(cka_values),
-                'cka_min': min(cka_values),
-                'eff_dim_drop_mean': sum(eff_dim_drops) / len(eff_dim_drops),
-                'anisotropy_change_mean': sum(anisotropy_changes) / len(anisotropy_changes),
-                'n_trials': n_trials,
+                "cka_mean": sum(cka_values) / len(cka_values),
+                "cka_min": min(cka_values),
+                "eff_dim_drop_mean": sum(eff_dim_drops) / len(eff_dim_drops),
+                "anisotropy_change_mean": sum(anisotropy_changes) / len(anisotropy_changes),
+                "n_trials": n_trials,
             }
 
         # Robustness score: area under the CKA curve
         if results:
             intensities_sorted = sorted(results.keys())
-            cka_curve = [results[i]['cka_mean'] for i in intensities_sorted]
+            cka_curve = [results[i]["cka_mean"] for i in intensities_sorted]
             # AUC (trapezoidal)
             auc = 0
             for i in range(len(cka_curve) - 1):
@@ -123,15 +122,23 @@ class RepresentationRobustness:
             robustness_score = 0.0
 
         return {
-            'perturbation_curve': results,
-            'robustness_score': robustness_score,  # Higher = more robust
-            'cka_at_max_intensity': results.get(max(intensities) if intensities else 0, {}).get('cka_mean', 0),
+            "perturbation_curve": results,
+            "robustness_score": robustness_score,  # Higher = more robust
+            "cka_at_max_intensity": results.get(max(intensities) if intensities else 0, {}).get(
+                "cka_mean", 0
+            ),
         }
 
     @staticmethod
-    def compare(jepa_model, baseline_model, input_ids,
-                perturbation_fn, intensities=(0.1, 0.3, 0.5),
-                device='cpu', n_trials=3):
+    def compare(
+        jepa_model,
+        baseline_model,
+        input_ids,
+        perturbation_fn,
+        intensities=(0.1, 0.3, 0.5),
+        device="cpu",
+        n_trials=3,
+    ):
         """Compare robustness between JEPA and baseline.
 
         THE KEY COMPARISON: if JEPA's CKA curve stays higher,
@@ -144,17 +151,18 @@ class RepresentationRobustness:
         base_result = base_rob.perturbation_curve(input_ids, perturbation_fn, intensities, n_trials)
 
         return {
-            'jepa_robustness_score': jepa_result['robustness_score'],
-            'baseline_robustness_score': base_result['robustness_score'],
-            'jepa_more_robust': jepa_result['robustness_score'] > base_result['robustness_score'],
-            'jepa_curve': jepa_result['perturbation_curve'],
-            'baseline_curve': base_result['perturbation_curve'],
+            "jepa_robustness_score": jepa_result["robustness_score"],
+            "baseline_robustness_score": base_result["robustness_score"],
+            "jepa_more_robust": jepa_result["robustness_score"] > base_result["robustness_score"],
+            "jepa_curve": jepa_result["perturbation_curve"],
+            "baseline_curve": base_result["perturbation_curve"],
         }
 
 
 # ═══════════════════════════════════════════════════════════════
 # Standard perturbation functions
 # ═══════════════════════════════════════════════════════════════
+
 
 def token_dropout(input_ids, intensity, pad_id=0, vocab_size=50304):
     """Randomly replace tokens with PAD (zero out)."""
@@ -208,7 +216,7 @@ def span_corruption(input_ids, intensity, span_length=5, mask_id=0):
     for b in range(B):
         for _ in range(n_spans):
             start = torch.randint(0, max(T - span_length, 1), (1,)).item()
-            result[b, start:start + span_length] = mask_id
+            result[b, start : start + span_length] = mask_id
 
     return result
 
@@ -217,19 +225,19 @@ def span_corruption(input_ids, intensity, span_length=5, mask_id=0):
 # Full robustness battery
 # ═══════════════════════════════════════════════════════════════
 
+
 class RobustnessBattery:
     """Run all perturbation types and compare JEPA vs baseline."""
 
     PERTURBATIONS = {
-        'token_dropout': token_dropout,
-        'token_substitution': token_substitution,
-        'token_permutation': token_permutation,
-        'span_corruption': span_corruption,
+        "token_dropout": token_dropout,
+        "token_substitution": token_substitution,
+        "token_permutation": token_permutation,
+        "span_corruption": span_corruption,
     }
 
     @staticmethod
-    def run(jepa_model, baseline_model, input_ids,
-            intensities=(0.1, 0.3, 0.5), device='cpu'):
+    def run(jepa_model, baseline_model, input_ids, intensities=(0.1, 0.3, 0.5), device="cpu"):
         """Run full robustness battery.
 
         Returns:
@@ -238,21 +246,20 @@ class RobustnessBattery:
         results = {}
         for name, perturb_fn in RobustnessBattery.PERTURBATIONS.items():
             result = RepresentationRobustness.compare(
-                jepa_model, baseline_model, input_ids,
-                perturb_fn, intensities, device
+                jepa_model, baseline_model, input_ids, perturb_fn, intensities, device
             )
             results[name] = {
-                'jepa_score': result['jepa_robustness_score'],
-                'baseline_score': result['baseline_robustness_score'],
-                'jepa_more_robust': result['jepa_more_robust'],
+                "jepa_score": result["jepa_robustness_score"],
+                "baseline_score": result["baseline_robustness_score"],
+                "jepa_more_robust": result["jepa_more_robust"],
             }
 
         # Summary: JEPA wins on how many perturbation types?
-        jepa_wins = sum(1 for r in results.values() if r['jepa_more_robust'])
-        results['_summary'] = {
-            'jepa_wins': jepa_wins,
-            'n_perturbations': len(RobustnessBattery.PERTURBATIONS),
-            'jepa_robustness_advantage': jepa_wins > len(RobustnessBattery.PERTURBATIONS) // 2,
+        jepa_wins = sum(1 for r in results.values() if r["jepa_more_robust"])
+        results["_summary"] = {
+            "jepa_wins": jepa_wins,
+            "n_perturbations": len(RobustnessBattery.PERTURBATIONS),
+            "jepa_robustness_advantage": jepa_wins > len(RobustnessBattery.PERTURBATIONS) // 2,
         }
 
         return results

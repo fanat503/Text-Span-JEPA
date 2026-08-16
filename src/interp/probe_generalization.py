@@ -15,11 +15,9 @@
 # Ravichander et al., 2020) will ask: "How do you know the probe
 # isn't just learning the task from the labels?"
 
-import math
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional
+from torch import nn
 
 
 class ProbeGeneralizationTest:
@@ -34,8 +32,9 @@ class ProbeGeneralizationTest:
     universal and genuinely encode linguistic structure.
     """
 
-    def __init__(self, embed_dim=768, num_classes=2, lr=1e-3,
-                 max_epochs=50, patience=5, device='cpu'):
+    def __init__(
+        self, embed_dim=768, num_classes=2, lr=1e-3, max_epochs=50, patience=5, device="cpu"
+    ):
         self.embed_dim = embed_dim
         self.num_classes = num_classes
         self.lr = lr
@@ -97,9 +96,9 @@ class ProbeGeneralizationTest:
         logits = probe(reps)
         return (logits.argmax(dim=-1) == labs).float().mean().item()
 
-    def cross_dataset_generalization(self, source_reps, source_labels,
-                                     target_reps, target_labels,
-                                     task_name='default'):
+    def cross_dataset_generalization(
+        self, source_reps, source_labels, target_reps, target_labels, task_name="default"
+    ):
         """Train probe on source, test on target (zero-shot transfer).
 
         Args:
@@ -128,17 +127,24 @@ class ProbeGeneralizationTest:
         gen_ratio = target_acc / max(source_acc, 1e-10)
 
         return {
-            'task': task_name,
-            'source_accuracy': source_acc,
-            'target_accuracy': target_acc,
-            'generalization_gap': gen_gap,
-            'generalization_ratio': gen_ratio,  # Higher = better generalization
-            'probe_transfers': target_acc > 0.5,  # Better than random for binary
+            "task": task_name,
+            "source_accuracy": source_acc,
+            "target_accuracy": target_acc,
+            "generalization_gap": gen_gap,
+            "generalization_ratio": gen_ratio,  # Higher = better generalization
+            "probe_transfers": target_acc > 0.5,  # Better than random for binary
         }
 
-    def compare_models(self, jepa_source, baseline_source, target_source,
-                       jepa_target, baseline_target, target_target,
-                       task_name='default'):
+    def compare_models(
+        self,
+        jepa_source,
+        baseline_source,
+        target_source,
+        jepa_target,
+        baseline_target,
+        target_target,
+        task_name="default",
+    ):
         """Compare probe generalization between JEPA and baseline.
 
         THE KEY COMPARISON: if JEPA probes transfer better,
@@ -156,20 +162,23 @@ class ProbeGeneralizationTest:
             dict with comparison
         """
         jepa_result = self.cross_dataset_generalization(
-            jepa_source, target_source, jepa_target, target_target, f'{task_name}_jepa')
+            jepa_source, target_source, jepa_target, target_target, f"{task_name}_jepa"
+        )
 
         baseline_result = self.cross_dataset_generalization(
-            baseline_source, target_source, baseline_target, target_target, f'{task_name}_baseline')
+            baseline_source, target_source, baseline_target, target_target, f"{task_name}_baseline"
+        )
 
         return {
-            'task': task_name,
-            'jepa_gen_ratio': jepa_result['generalization_ratio'],
-            'baseline_gen_ratio': baseline_result['generalization_ratio'],
-            'jepa_target_acc': jepa_result['target_accuracy'],
-            'baseline_target_acc': baseline_result['target_accuracy'],
-            'jepa_generalizes_better': jepa_result['generalization_ratio'] > baseline_result['generalization_ratio'],
-            'jepa_gen_gap': jepa_result['generalization_gap'],
-            'baseline_gen_gap': baseline_result['generalization_gap'],
+            "task": task_name,
+            "jepa_gen_ratio": jepa_result["generalization_ratio"],
+            "baseline_gen_ratio": baseline_result["generalization_ratio"],
+            "jepa_target_acc": jepa_result["target_accuracy"],
+            "baseline_target_acc": baseline_result["target_accuracy"],
+            "jepa_generalizes_better": jepa_result["generalization_ratio"]
+            > baseline_result["generalization_ratio"],
+            "jepa_gen_gap": jepa_result["generalization_gap"],
+            "baseline_gen_gap": baseline_result["generalization_gap"],
         }
 
 
@@ -184,8 +193,7 @@ class ProbeSelectivityTest:
     extracting linguistic structure, not just memorizing.
     """
 
-    def __init__(self, embed_dim=768, num_classes=2, lr=1e-3,
-                 max_epochs=30, device='cpu'):
+    def __init__(self, embed_dim=768, num_classes=2, lr=1e-3, max_epochs=30, device="cpu"):
         self.embed_dim = embed_dim
         self.num_classes = num_classes
         self.lr = lr
@@ -218,9 +226,13 @@ class ProbeSelectivityTest:
             probe.eval()
             with torch.no_grad():
                 val_logits = probe(reps[idx[n_train:]].to(self.device))
-                acc = (val_logits.argmax(dim=-1) == labels[idx[n_train:]].to(self.device)).float().mean().item()
-            if acc > best_acc:
-                best_acc = acc
+                acc = (
+                    (val_logits.argmax(dim=-1) == labels[idx[n_train:]].to(self.device))
+                    .float()
+                    .mean()
+                    .item()
+                )
+            best_acc = max(best_acc, acc)
 
         return best_acc
 
@@ -260,11 +272,11 @@ class ProbeSelectivityTest:
         selectivity = real_acc - mean_control
 
         return {
-            'real_task_accuracy': real_acc,
-            'control_task_accuracy': mean_control,
-            'selectivity': selectivity,  # Higher = more genuine
-            'probe_is_genuine': selectivity > 0.1,
-            'n_control_experiments': n_control,
+            "real_task_accuracy": real_acc,
+            "control_task_accuracy": mean_control,
+            "selectivity": selectivity,  # Higher = more genuine
+            "probe_is_genuine": selectivity > 0.1,
+            "n_control_experiments": n_control,
         }
 
     def compare_selectivity(self, jepa_reps, baseline_reps, labels, n_control=5):
@@ -273,13 +285,13 @@ class ProbeSelectivityTest:
         baseline_sel = self.compute_selectivity(baseline_reps, labels, n_control)
 
         return {
-            'jepa_selectivity': jepa_sel['selectivity'],
-            'baseline_selectivity': baseline_sel['selectivity'],
-            'jepa_more_selective': jepa_sel['selectivity'] > baseline_sel['selectivity'],
-            'jepa_real_acc': jepa_sel['real_task_accuracy'],
-            'baseline_real_acc': baseline_sel['real_task_accuracy'],
-            'jepa_control_acc': jepa_sel['control_task_accuracy'],
-            'baseline_control_acc': baseline_sel['control_task_accuracy'],
+            "jepa_selectivity": jepa_sel["selectivity"],
+            "baseline_selectivity": baseline_sel["selectivity"],
+            "jepa_more_selective": jepa_sel["selectivity"] > baseline_sel["selectivity"],
+            "jepa_real_acc": jepa_sel["real_task_accuracy"],
+            "baseline_real_acc": baseline_sel["real_task_accuracy"],
+            "jepa_control_acc": jepa_sel["control_task_accuracy"],
+            "baseline_control_acc": baseline_sel["control_task_accuracy"],
         }
 
 
@@ -293,8 +305,7 @@ class StructuralProbeGeneralization:
     """
 
     @staticmethod
-    def compute(probe, source_reps, source_tree_dists,
-                target_reps, target_tree_dists):
+    def compute(probe, source_reps, source_tree_dists, target_reps, target_tree_dists):
         """Test structural probe generalization.
 
         Args:
@@ -307,19 +318,17 @@ class StructuralProbeGeneralization:
         Returns:
             dict with source and target Spearman correlation
         """
-        from src.interp.structural_probe import StructuralProbe
 
         # Evaluate on source
-        source_result = probe.evaluate(
-            [source_reps], [source_tree_dists])
+        source_result = probe.evaluate([source_reps], [source_tree_dists])
 
         # Evaluate on target (without retraining)
-        target_result = probe.evaluate(
-            [target_reps], [target_tree_dists])
+        target_result = probe.evaluate([target_reps], [target_tree_dists])
 
         return {
-            'source_spearman': source_result['spearman_r'],
-            'target_spearman': target_result['spearman_r'],
-            'generalization_ratio': target_result['spearman_r'] / max(source_result['spearman_r'], 1e-10),
-            'probe_generalizes': target_result['spearman_r'] > 0.3,
+            "source_spearman": source_result["spearman_r"],
+            "target_spearman": target_result["spearman_r"],
+            "generalization_ratio": target_result["spearman_r"]
+            / max(source_result["spearman_r"], 1e-10),
+            "probe_generalizes": target_result["spearman_r"] > 0.3,
         }

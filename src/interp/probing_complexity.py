@@ -16,11 +16,10 @@
 # - Pimentel et al. (2023): probing pareto frontier
 # - Conneau et al. (2018): probing linguistic features across layers
 
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
-import math
+from torch import nn
 
 
 class ProbingComplexityCurve:
@@ -40,10 +39,18 @@ class ProbingComplexityCurve:
     Negative = JEPA needs shallower probe (good — evidence for hypothesis)
     """
 
-    def __init__(self, embed_dim=768, num_classes=None,
-                 depths=(1, 2, 3, 4), hidden_mult=2,
-                 lr=1e-3, max_epochs=50, patience=5,
-                 min_accuracy=0.7, device='cpu'):
+    def __init__(
+        self,
+        embed_dim=768,
+        num_classes=None,
+        depths=(1, 2, 3, 4),
+        hidden_mult=2,
+        lr=1e-3,
+        max_epochs=50,
+        patience=5,
+        min_accuracy=0.7,
+        device="cpu",
+    ):
         """
         Args:
             embed_dim: dimension of representations
@@ -155,7 +162,7 @@ class ProbingComplexityCurve:
 
         return best_acc
 
-    def evaluate(self, representations, labels, task_name='default'):
+    def evaluate(self, representations, labels, task_name="default"):
         """Evaluate probing complexity for a single task.
 
         Args:
@@ -170,9 +177,9 @@ class ProbingComplexityCurve:
         num_classes = max(int(num_classes), 2)
 
         results = {
-            'task': task_name,
-            'depths': {},
-            'min_extracting_depth': None,
+            "task": task_name,
+            "depths": {},
+            "min_extracting_depth": None,
         }
 
         for depth in self.depths:
@@ -180,22 +187,21 @@ class ProbingComplexityCurve:
             # _train_probe needs gradients — use enable_grad context
             with torch.enable_grad():
                 acc = self._train_probe(probe, representations, labels)
-            results['depths'][depth] = acc
+            results["depths"][depth] = acc
 
             # First depth that exceeds threshold
-            if acc >= self.min_accuracy and results['min_extracting_depth'] is None:
-                results['min_extracting_depth'] = depth
+            if acc >= self.min_accuracy and results["min_extracting_depth"] is None:
+                results["min_extracting_depth"] = depth
 
         # If no depth reached threshold, set to max + 1
-        if results['min_extracting_depth'] is None:
-            results['min_extracting_depth'] = max(self.depths) + 1
+        if results["min_extracting_depth"] is None:
+            results["min_extracting_depth"] = max(self.depths) + 1
 
-        results['max_accuracy'] = max(results['depths'].values())
+        results["max_accuracy"] = max(results["depths"].values())
 
         return results
 
-    def compare_models(self, jepa_reps, baseline_reps, labels,
-                       task_name='default'):
+    def compare_models(self, jepa_reps, baseline_reps, labels, task_name="default"):
         """Compare probing complexity between JEPA and baseline.
 
         THE CORE COMPARISON for the paper.
@@ -209,36 +215,37 @@ class ProbingComplexityCurve:
         Returns:
             dict with complexity gap and per-depth comparison
         """
-        jepa_result = self.evaluate(jepa_reps, labels, f'{task_name}_jepa')
-        baseline_result = self.evaluate(baseline_reps, labels, f'{task_name}_baseline')
+        jepa_result = self.evaluate(jepa_reps, labels, f"{task_name}_jepa")
+        baseline_result = self.evaluate(baseline_reps, labels, f"{task_name}_baseline")
 
         # Probing Complexity Gap: negative = JEPA is more accessible
-        complexity_gap = jepa_result['min_extracting_depth'] - baseline_result['min_extracting_depth']
+        complexity_gap = (
+            jepa_result["min_extracting_depth"] - baseline_result["min_extracting_depth"]
+        )
 
         # Per-depth accuracy comparison
         depth_comparison = {}
         for depth in self.depths:
-            j_acc = jepa_result['depths'].get(depth, 0)
-            b_acc = baseline_result['depths'].get(depth, 0)
+            j_acc = jepa_result["depths"].get(depth, 0)
+            b_acc = baseline_result["depths"].get(depth, 0)
             depth_comparison[depth] = {
-                'jepa_accuracy': j_acc,
-                'baseline_accuracy': b_acc,
-                'jepa_advantage': j_acc - b_acc,
+                "jepa_accuracy": j_acc,
+                "baseline_accuracy": b_acc,
+                "jepa_advantage": j_acc - b_acc,
             }
 
         return {
-            'task': task_name,
-            'jepa_min_depth': jepa_result['min_extracting_depth'],
-            'baseline_min_depth': baseline_result['min_extracting_depth'],
-            'complexity_gap': complexity_gap,
-            'jepa_more_accessible': complexity_gap < 0,
-            'depth_comparison': depth_comparison,
-            'jepa_max_acc': jepa_result['max_accuracy'],
-            'baseline_max_acc': baseline_result['max_accuracy'],
+            "task": task_name,
+            "jepa_min_depth": jepa_result["min_extracting_depth"],
+            "baseline_min_depth": baseline_result["min_extracting_depth"],
+            "complexity_gap": complexity_gap,
+            "jepa_more_accessible": complexity_gap < 0,
+            "depth_comparison": depth_comparison,
+            "jepa_max_acc": jepa_result["max_accuracy"],
+            "baseline_max_acc": baseline_result["max_accuracy"],
         }
 
-    def multi_task_comparison(self, jepa_reps_dict, baseline_reps_dict,
-                              labels_dict):
+    def multi_task_comparison(self, jepa_reps_dict, baseline_reps_dict, labels_dict):
         """Compare probing complexity across multiple linguistic tasks.
 
         Args:
@@ -259,10 +266,10 @@ class ProbingComplexityCurve:
                 jepa_reps_dict[task_name],
                 baseline_reps_dict[task_name],
                 labels_dict[task_name],
-                task_name
+                task_name,
             )
             results[task_name] = result
-            complexity_gaps.append(result['complexity_gap'])
+            complexity_gaps.append(result["complexity_gap"])
 
         # Aggregate
         if complexity_gaps:
@@ -272,11 +279,11 @@ class ProbingComplexityCurve:
             avg_gap = 0.0
             n_jepa_better = 0
 
-        results['_summary'] = {
-            'avg_complexity_gap': avg_gap,
-            'n_tasks_jepa_more_accessible': n_jepa_better,
-            'n_tasks_total': len(complexity_gaps),
-            'fraction_jepa_better': n_jepa_better / max(len(complexity_gaps), 1),
+        results["_summary"] = {
+            "avg_complexity_gap": avg_gap,
+            "n_tasks_jepa_more_accessible": n_jepa_better,
+            "n_tasks_total": len(complexity_gaps),
+            "fraction_jepa_better": n_jepa_better / max(len(complexity_gaps), 1),
         }
 
         return results
@@ -305,10 +312,10 @@ class LinguisticProbeTasks:
         """
         labels = torch.tensor(pos_tags_list, dtype=torch.long)
         return {
-            'representations': representations,
-            'labels': labels,
-            'task_name': 'pos_tagging',
-            'num_classes': int(labels.max().item()) + 1,
+            "representations": representations,
+            "labels": labels,
+            "task_name": "pos_tagging",
+            "num_classes": int(labels.max().item()) + 1,
         }
 
     @staticmethod
@@ -323,18 +330,20 @@ class LinguisticProbeTasks:
         Returns:
             dict ready for evaluate()
         """
-        depths = torch.tensor(depth_values, dtype=torch.float32) if not isinstance(depth_values, torch.Tensor) else depth_values.clone().detach().float()
+        depths = (
+            torch.tensor(depth_values, dtype=torch.float32)
+            if not isinstance(depth_values, torch.Tensor)
+            else depth_values.clone().detach().float()
+        )
         # Discretize into bins
         percentiles = torch.linspace(0, 100, n_bins + 1)[1:-1]
-        bins = torch.tensor(
-            [torch.quantile(depths, p / 100).item() for p in percentiles]
-        )
+        bins = torch.tensor([torch.quantile(depths, p / 100).item() for p in percentiles])
         labels = torch.bucketize(depths, bins)
         return {
-            'representations': representations,
-            'labels': labels,
-            'task_name': 'syntactic_depth',
-            'num_classes': n_bins,
+            "representations": representations,
+            "labels": labels,
+            "task_name": "syntactic_depth",
+            "num_classes": n_bins,
         }
 
     @staticmethod
@@ -351,15 +360,13 @@ class LinguisticProbeTasks:
         """
         lengths = torch.tensor(token_lengths, dtype=torch.float32)
         percentiles = torch.linspace(0, 100, n_bins + 1)[1:-1]
-        bins = torch.tensor(
-            [torch.quantile(lengths, p / 100).item() for p in percentiles]
-        )
+        bins = torch.tensor([torch.quantile(lengths, p / 100).item() for p in percentiles])
         labels = torch.bucketize(lengths, bins)
         return {
-            'representations': representations,
-            'labels': labels,
-            'task_name': 'word_length',
-            'num_classes': n_bins,
+            "representations": representations,
+            "labels": labels,
+            "task_name": "word_length",
+            "num_classes": n_bins,
         }
 
     @staticmethod
@@ -375,10 +382,10 @@ class LinguisticProbeTasks:
         """
         labels = torch.tensor(entity_labels, dtype=torch.long)
         return {
-            'representations': representations,
-            'labels': labels,
-            'task_name': 'entity_type',
-            'num_classes': int(labels.max().item()) + 1,
+            "representations": representations,
+            "labels": labels,
+            "task_name": "entity_type",
+            "num_classes": int(labels.max().item()) + 1,
         }
 
     @staticmethod
@@ -394,8 +401,8 @@ class LinguisticProbeTasks:
         """
         labels = torch.tensor(sentiment_labels, dtype=torch.long)
         return {
-            'representations': representations,
-            'labels': labels,
-            'task_name': 'sentiment',
-            'num_classes': 3,
+            "representations": representations,
+            "labels": labels,
+            "task_name": "sentiment",
+            "num_classes": 3,
         }

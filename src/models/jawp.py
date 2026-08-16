@@ -132,9 +132,10 @@
 #  JAWP detaches z_target internally to enforce this.
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class JAWPModule(nn.Module):
@@ -159,8 +160,15 @@ class JAWPModule(nn.Module):
         init: 'identity' | 'random' | 'pca'
     """
 
-    def __init__(self, embed_dim=768, k_start=1, k_end=None,
-                 curriculum_steps=10000, alpha=0.1, init='identity'):
+    def __init__(
+        self,
+        embed_dim=768,
+        k_start=1,
+        k_end=None,
+        curriculum_steps=10000,
+        alpha=0.1,
+        init="identity",
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.k_start = k_start
@@ -175,30 +183,29 @@ class JAWPModule(nn.Module):
         self._init_Q(init)
 
         # Current active workspace dimension (for curriculum)
-        self.register_buffer('active_k', torch.tensor(k_start, dtype=torch.long))
+        self.register_buffer("active_k", torch.tensor(k_start, dtype=torch.long))
 
         # PCA-initialized flag (for 'pca' init mode)
-        self._pca_initialized = (init != 'pca')
+        self._pca_initialized = init != "pca"
 
     def _init_Q(self, mode):
         """Initialize workspace projection on the Stiefel manifold."""
-        if mode == 'identity':
+        if mode == "identity":
             with torch.no_grad():
                 self.workspace_Q.zero_()
                 k = min(self.k_end, self.embed_dim)
                 self.workspace_Q[:k, :k] = torch.eye(k)
-        elif mode == 'random':
+        elif mode == "random":
             with torch.no_grad():
                 M = torch.randn(self.embed_dim, self.k_end)
                 Q, _ = torch.linalg.qr(M)
                 self.workspace_Q.copy_(Q)
-        elif mode == 'pca':
+        elif mode == "pca":
             with torch.no_grad():
                 M = torch.randn(self.embed_dim, self.k_end) * 0.01
                 self.workspace_Q.copy_(M)
         else:
-            raise ValueError(
-                f"Unknown init mode: {mode}. Use 'identity', 'random', or 'pca'.")
+            raise ValueError(f"Unknown init mode: {mode}. Use 'identity', 'random', or 'pca'.")
 
     @torch.no_grad()
     def stiefel_retract(self):
@@ -240,7 +247,7 @@ class JAWPModule(nn.Module):
 
         # SVD retraction: nearest orthonormal matrix for ALL columns
         try:
-            U, S, Vh = torch.linalg.svd(Q, full_matrices=False)
+            U, _S, Vh = torch.linalg.svd(Q, full_matrices=False)
             Q.copy_(U[:, :k_total] @ Vh[:k_total, :])
         except Exception:
             try:
@@ -272,8 +279,8 @@ class JAWPModule(nn.Module):
         cov = (centered.T @ centered) / max(N - 1, 1)
 
         try:
-            eigenvalues, eigenvectors = torch.linalg.eigh(cov)
-            eigenvectors = eigenvectors.flip(1)[:, :self.k_end]
+            _eigenvalues, eigenvectors = torch.linalg.eigh(cov)
+            eigenvectors = eigenvectors.flip(1)[:, : self.k_end]
             self.workspace_Q.copy_(eigenvectors)
             self._pca_initialized = True
         except Exception:
@@ -304,17 +311,17 @@ class JAWPModule(nn.Module):
         z_target_flat = z_target.reshape(-1, D).detach()
 
         # === 1. Workspace Prediction Loss (MSE) ===
-        pred_ws = z_pred_flat @ Q        # (N, k)
-        target_ws = z_target_flat @ Q    # (N, k) — Q gets gradients from BOTH sides
+        pred_ws = z_pred_flat @ Q  # (N, k)
+        target_ws = z_target_flat @ Q  # (N, k) — Q gets gradients from BOTH sides
         loss_workspace = F.mse_loss(pred_ws, target_ws)
 
         # === 2. Predictor Focus Penalty ===
         # Micro-opt: reuse pred_ws.detach() instead of recomputing z_pred_flat @ Q.detach()
-        pred_ws_det = pred_ws.detach()            # (N, k) — detached from graph
+        pred_ws_det = pred_ws.detach()  # (N, k) — detached from graph
         Q_det = Q.detach()
-        pred_ws_recon = pred_ws_det @ Q_det.T     # (N, D) — reconstruct from workspace
-        pred_bg = z_pred_flat - pred_ws_recon     # (N, D) — background component
-        loss_predictor_focus = (pred_bg ** 2).mean()
+        pred_ws_recon = pred_ws_det @ Q_det.T  # (N, D) — reconstruct from workspace
+        pred_bg = z_pred_flat - pred_ws_recon  # (N, D) — background component
+        loss_predictor_focus = (pred_bg**2).mean()
 
         # === Total JAWP loss ===
         total_loss = loss_workspace + self.alpha * loss_predictor_focus
@@ -328,23 +335,26 @@ class JAWPModule(nn.Module):
 
             # Workspace utilization: ||QQ^T z||^2 = ||Q^T z||^2 = ||pred_ws||^2
             # when Q is orthonormal (Stiefel constraint)
-            ws_energy = (pred_ws_d ** 2).sum()
-            total_energy = (z_pred_flat ** 2).sum() + 1e-10
+            ws_energy = (pred_ws_d**2).sum()
+            total_energy = (z_pred_flat**2).sum() + 1e-10
             workspace_utilization = (ws_energy / total_energy).clamp(0, 1).item()
 
             # Target workspace fraction: same orthonormality trick
-            target_ws_energy = (target_ws_d ** 2).sum()
-            target_total_energy = (z_target_flat ** 2).sum() + 1e-10
+            target_ws_energy = (target_ws_d**2).sum()
+            target_total_energy = (z_target_flat**2).sum() + 1e-10
             target_ws_fraction = (target_ws_energy / target_total_energy).clamp(0, 1).item()
 
             # Workspace prediction cosine
             pred_norm = pred_ws_d.norm()
             target_norm = target_ws_d.norm()
             if pred_norm > 1e-10 and target_norm > 1e-10:
-                ws_cosine = F.cosine_similarity(
-                    pred_ws_d.flatten().unsqueeze(0),
-                    target_ws_d.flatten().unsqueeze(0)
-                ).clamp(-1, 1).item()
+                ws_cosine = (
+                    F.cosine_similarity(
+                        pred_ws_d.flatten().unsqueeze(0), target_ws_d.flatten().unsqueeze(0)
+                    )
+                    .clamp(-1, 1)
+                    .item()
+                )
             else:
                 ws_cosine = 0.0
 
@@ -357,25 +367,23 @@ class JAWPModule(nn.Module):
             bg_pred_error = ((z_pred_flat - z_target_flat) ** 2).mean()
             ws_pred_error = ((pred_ws_d - target_ws_d) ** 2).mean()
             if bg_pred_error.item() > 1e-10:
-                predictive_relevance = max(
-                    0.0, 1.0 - (ws_pred_error / bg_pred_error).item())
+                predictive_relevance = max(0.0, 1.0 - (ws_pred_error / bg_pred_error).item())
             else:
                 predictive_relevance = 1.0
 
             # PCA alignment: subspace similarity between learned Q and PCA
-            pca_alignment = self._compute_pca_alignment(
-                z_target_flat, Q, k)
+            pca_alignment = self._compute_pca_alignment(z_target_flat, Q, k)
 
         info = {
-            'loss_workspace': loss_workspace.item(),
-            'loss_predictor_focus': loss_predictor_focus.item(),
-            'k': k,
-            'workspace_utilization': workspace_utilization,
-            'target_ws_fraction': target_ws_fraction,
-            'workspace_cosine': ws_cosine,
-            'ortho_score': ortho_score,
-            'predictive_relevance': predictive_relevance,
-            'pca_alignment': pca_alignment,
+            "loss_workspace": loss_workspace.item(),
+            "loss_predictor_focus": loss_predictor_focus.item(),
+            "k": k,
+            "workspace_utilization": workspace_utilization,
+            "target_ws_fraction": target_ws_fraction,
+            "workspace_cosine": ws_cosine,
+            "ortho_score": ortho_score,
+            "predictive_relevance": predictive_relevance,
+            "pca_alignment": pca_alignment,
         }
 
         return total_loss, info
@@ -391,11 +399,11 @@ class JAWPModule(nn.Module):
 
             centered = target_flat - target_flat.mean(dim=0)
             cov = (centered.T @ centered) / max(N - 1, 1)
-            eigenvalues, eigenvectors = torch.linalg.eigh(cov)
+            _eigenvalues, eigenvectors = torch.linalg.eigh(cov)
             V_pca = eigenvectors.flip(1)[:, :k]
 
             cross = Q.T @ V_pca  # (k, k)
-            trace_term = (cross ** 2).sum()
+            trace_term = (cross**2).sum()
             similarity = trace_term / k
 
             val = similarity.item()
@@ -472,7 +480,7 @@ class JAWPModule(nn.Module):
 
         N = z_pred_flat.size(0)
         if N <= 1 or D < 4:
-            return self.k_end, {'method': 'fallback', 'reason': 'insufficient_data'}
+            return self.k_end, {"method": "fallback", "reason": "insufficient_data"}
 
         # Compute residual covariance
         residual = z_pred_flat - z_target_flat
@@ -505,8 +513,10 @@ class JAWPModule(nn.Module):
             # If noise variance is sigma^2 and c = k/D,
             # MP bulk is [sigma^2(1-sqrt(c))^2, sigma^2(1+sqrt(c))^2]
             # Estimate sigma^2 from the median of top eigenvalues
-            top_eigs = eigenvalues[D // 2:]
-            sigma2_est = top_eigs.median().item() if top_eigs.numel() > 0 else eigenvalues[-1].item()
+            top_eigs = eigenvalues[D // 2 :]
+            sigma2_est = (
+                top_eigs.median().item() if top_eigs.numel() > 0 else eigenvalues[-1].item()
+            )
             c_est = 0.5  # conservative estimate
             mp_lower = sigma2_est * (1.0 - math.sqrt(c_est)) ** 2
 
@@ -520,20 +530,20 @@ class JAWPModule(nn.Module):
             k_star = min(k_star, self.k_end)  # at most k_end
 
             gap_info = {
-                'method': 'spectral_gap',
-                'k_star': k_star,
-                'k_gap': int(k_gap),
-                'k_mp': int(k_mp),
-                'max_gap_ratio': max_gap_ratio,
-                'mp_lower_bound': mp_lower,
-                'sigma2_est': sigma2_est,
-                'min_eig': eigenvalues[0].item(),
-                'max_eig': eigenvalues[-1].item(),
+                "method": "spectral_gap",
+                "k_star": k_star,
+                "k_gap": int(k_gap),
+                "k_mp": int(k_mp),
+                "max_gap_ratio": max_gap_ratio,
+                "mp_lower_bound": mp_lower,
+                "sigma2_est": sigma2_est,
+                "min_eig": eigenvalues[0].item(),
+                "max_eig": eigenvalues[-1].item(),
             }
             return int(k_star), gap_info
 
         except Exception:
-            return self.k_end, {'method': 'fallback', 'reason': 'svd_failed'}
+            return self.k_end, {"method": "fallback", "reason": "svd_failed"}
 
     @torch.no_grad()
     def workspace_information_preservation(self, z_pred, z_target, features=None):
@@ -607,25 +617,25 @@ class JAWPModule(nn.Module):
             # Use top-k PCA directions as proxy exogenous features
             N = z_target_flat.size(0)
             if N <= 1:
-                return 1.0, {'method': 'trivial', 'wip_score': 1.0}
+                return 1.0, {"method": "trivial", "wip_score": 1.0}
             centered = z_target_flat - z_target_flat.mean(dim=0)
             cov = (centered.T @ centered) / max(N - 1, 1)
             try:
-                eigenvalues, eigenvectors = torch.linalg.eigh(cov)
+                _eigenvalues, eigenvectors = torch.linalg.eigh(cov)
                 # Top-k PCA directions (highest variance = most likely exogenous)
                 f_flat = eigenvectors.flip(1)[:, :k].T  # (k, D)
             except Exception:
-                return 0.0, {'method': 'fallback', 'wip_score': 0.0}
+                return 0.0, {"method": "fallback", "wip_score": 0.0}
 
         N_f = f_flat.size(0)
         if N_f == 0 or k == 0:
-            return 0.0, {'method': 'empty', 'wip_score': 0.0}
+            return 0.0, {"method": "empty", "wip_score": 0.0}
 
         # Compute projection of features onto workspace
         # For each feature f_i, the workspace projection is ||Q^T f_i||^2 / ||f_i||^2
-        f_norms = (f_flat ** 2).sum(dim=1).clamp(min=1e-10)  # (N_f,)
+        f_norms = (f_flat**2).sum(dim=1).clamp(min=1e-10)  # (N_f,)
         f_ws = f_flat @ Q  # (N_f, k)
-        f_ws_energy = (f_ws ** 2).sum(dim=1)  # (N_f,)
+        f_ws_energy = (f_ws**2).sum(dim=1)  # (N_f,)
 
         # WIP score: average fraction of feature energy captured by workspace
         preservation_per_feature = (f_ws_energy / f_norms).clamp(0, 1)
@@ -636,13 +646,13 @@ class JAWPModule(nn.Module):
         bg_fraction = (f_bg_energy / f_norms).clamp(0, 1).mean().item()
 
         wip_info = {
-            'method': 'wip_theorem',
-            'wip_score': wip_score,
-            'bg_fraction': bg_fraction,
-            'min_preservation': preservation_per_feature.min().item(),
-            'max_preservation': preservation_per_feature.max().item(),
-            'k': k,
-            'n_features': N_f,
+            "method": "wip_theorem",
+            "wip_score": wip_score,
+            "bg_fraction": bg_fraction,
+            "min_preservation": preservation_per_feature.min().item(),
+            "max_preservation": preservation_per_feature.max().item(),
+            "k": k,
+            "n_features": N_f,
         }
 
         return wip_score, wip_info
@@ -687,10 +697,10 @@ class JAWPModule(nn.Module):
             bg_complexity = 1.0
 
         bg_info = {
-            'ws_residual': ws_residual,
-            'bg_residual': bg_residual,
-            'bg_complexity_ratio': bg_complexity,
-            'k': k,
+            "ws_residual": ws_residual,
+            "bg_residual": bg_residual,
+            "bg_complexity_ratio": bg_complexity,
+            "k": k,
         }
 
         return bg_complexity, bg_info
@@ -817,7 +827,7 @@ class JAWPModule(nn.Module):
 
         # SVD retraction for ALL columns (same as Stiefel)
         try:
-            U, S, Vh = torch.linalg.svd(Q, full_matrices=False)
+            U, _S, Vh = torch.linalg.svd(Q, full_matrices=False)
             Q.copy_(U[:, :k_total] @ Vh[:k_total, :])
         except Exception:
             try:
@@ -860,7 +870,7 @@ class JAWPModule(nn.Module):
 
         if other_Q is None:
             # Use stored previous Q
-            prev_Q = getattr(self, '_prev_workspace_Q', None)
+            prev_Q = getattr(self, "_prev_workspace_Q", None)
             if prev_Q is None:
                 return [0.0] * k, [1.0] * k
             Q2 = prev_Q[:, :k]
@@ -994,9 +1004,13 @@ class JAWPModule(nn.Module):
         N = z_flat.size(0)
 
         if N <= 1 or k < 1:
-            return {'effective_rank': float(k), 'singular_values': [],
-                    'rank_utilization': 1.0, 'min_singular': 1.0,
-                    'condition_number': 1.0}
+            return {
+                "effective_rank": float(k),
+                "singular_values": [],
+                "rank_utilization": 1.0,
+                "min_singular": 1.0,
+                "condition_number": 1.0,
+            }
 
         # Workspace covariance: Σ_ws = Q^T Cov(z_pred) Q
         centered = z_flat - z_flat.mean(dim=0)
@@ -1016,19 +1030,23 @@ class JAWPModule(nn.Module):
 
             min_sv = sv[-1].item()
             max_sv = sv[0].item()
-            cond = max_sv / min_sv if min_sv > 1e-10 else float('inf')
+            cond = max_sv / min_sv if min_sv > 1e-10 else float("inf")
 
             return {
-                'effective_rank': eff_rank,
-                'singular_values': sv_list,
-                'rank_utilization': min(eff_rank / k, 1.0),
-                'min_singular': min_sv,
-                'condition_number': cond,
+                "effective_rank": eff_rank,
+                "singular_values": sv_list,
+                "rank_utilization": min(eff_rank / k, 1.0),
+                "min_singular": min_sv,
+                "condition_number": cond,
             }
         except Exception:
-            return {'effective_rank': float(k), 'singular_values': [],
-                    'rank_utilization': 1.0, 'min_singular': 1.0,
-                    'condition_number': 1.0}
+            return {
+                "effective_rank": float(k),
+                "singular_values": [],
+                "rank_utilization": 1.0,
+                "min_singular": 1.0,
+                "condition_number": 1.0,
+            }
 
     def predictive_rank_loss(self, z_pred, eps=1e-4):
         """Log-determinant barrier for rank preservation.
@@ -1072,6 +1090,8 @@ class JAWPModule(nn.Module):
         return -log_det.squeeze()  # Ensure scalar output
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, k_start={self.k_start}, '
-                f'k_end={self.k_end}, alpha={self.alpha}, '
-                f'curriculum_steps={self.curriculum_steps}')
+        return (
+            f"embed_dim={self.embed_dim}, k_start={self.k_start}, "
+            f"k_end={self.k_end}, alpha={self.alpha}, "
+            f"curriculum_steps={self.curriculum_steps}"
+        )

@@ -5,19 +5,19 @@
 # Predictor architecture from I-JEPA, adapted for text with query embeddings
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class PredictorBlock(nn.Module):
     """Lightweight transformer block for the predictor — from I-JEPA."""
 
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=True, drop=0.):
+    def __init__(self, dim, num_heads, mlp_ratio=4.0, qkv_bias=True, drop=0.0):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
-        self.attn = nn.MultiheadAttention(dim, num_heads, dropout=drop,
-                                           batch_first=True)
+        self.attn = nn.MultiheadAttention(dim, num_heads, dropout=drop, batch_first=True)
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = nn.Sequential(
             nn.Linear(dim, int(dim * mlp_ratio)),
@@ -52,7 +52,7 @@ class TextSpanJEPApredictor(nn.Module):
         predictor_embed_dim=384,
         depth=6,
         num_heads=12,
-        mlp_ratio=4.,
+        mlp_ratio=4.0,
         max_seq_len=512,
         future_offsets=(1, 4, 16),
         num_refine_steps=3,
@@ -72,10 +72,12 @@ class TextSpanJEPApredictor(nn.Module):
 
         # Learned query embeddings for different prediction tasks
         self.span_query = nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
-        self.future_queries = nn.ParameterDict({
-            f'offset_{d}': nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
-            for d in future_offsets
-        })
+        self.future_queries = nn.ParameterDict(
+            {
+                f"offset_{d}": nn.Parameter(torch.zeros(1, 1, predictor_embed_dim))
+                for d in future_offsets
+            }
+        )
 
         # Learned positional embedding for predictor (I-JEPA: learned, not frozen)
         self.predictor_pos_embed = nn.Parameter(
@@ -89,11 +91,12 @@ class TextSpanJEPApredictor(nn.Module):
         self.refine_gate = nn.Parameter(torch.tensor(0.1))
 
         # Predictor transformer blocks (I-JEPA pattern)
-        self.predictor_blocks = nn.ModuleList([
-            PredictorBlock(dim=predictor_embed_dim, num_heads=num_heads,
-                          mlp_ratio=mlp_ratio)
-            for _ in range(depth)
-        ])
+        self.predictor_blocks = nn.ModuleList(
+            [
+                PredictorBlock(dim=predictor_embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
+                for _ in range(depth)
+            ]
+        )
         self.predictor_norm = nn.LayerNorm(predictor_embed_dim)
 
         # Project back to encoder dim
@@ -110,8 +113,10 @@ class TextSpanJEPApredictor(nn.Module):
 
     def _fix_init_weight(self):
         """Depth-wise rescaling from I-JEPA / CaiT."""
+
         def rescale(param, layer_id):
             param.div_(math.sqrt(2.0 * layer_id))
+
         for layer_id, layer in enumerate(self.predictor_blocks):
             rescale(layer.attn.out_proj.weight.data, layer_id + 1)
             rescale(layer.mlp[-1].weight.data, layer_id + 1)
@@ -160,14 +165,16 @@ class TextSpanJEPApredictor(nn.Module):
             num_masked_per_sample: (B,)
             valid_mask: (B, max_num_masked) bool, True for real masked positions
         """
-        B, T, D = h.shape
+        B, _T, D = h.shape
         num_masked_per_sample = mask_positions.sum(dim=1)
         max_num_masked = num_masked_per_sample.max().item()
 
         if max_num_masked == 0:
-            return (torch.zeros(B, 1, D, device=h.device),
-                    num_masked_per_sample,
-                    torch.zeros(B, 1, dtype=torch.bool, device=h.device))
+            return (
+                torch.zeros(B, 1, D, device=h.device),
+                num_masked_per_sample,
+                torch.zeros(B, 1, dtype=torch.bool, device=h.device),
+            )
 
         indices = torch.zeros(B, max_num_masked, dtype=torch.long, device=h.device)
         valid_mask = torch.zeros(B, max_num_masked, dtype=torch.bool, device=h.device)
@@ -185,7 +192,7 @@ class TextSpanJEPApredictor(nn.Module):
 
     def forward_span_prediction(self, h_online, mask_positions):
         """Predict target latent states at masked span positions."""
-        B, T, D = h_online.shape
+        B, T, _D = h_online.shape
 
         x = self.predictor_embed(h_online)
         pos_emb = self.predictor_pos_embed[:, :T, :]
@@ -204,17 +211,17 @@ class TextSpanJEPApredictor(nn.Module):
 
     def forward_future_prediction(self, h_online, token_embeds, target_h):
         """Predict future target latent states — lightweight (no iterative refinement)."""
-        B, T, D = h_online.shape
+        B, T, _D = h_online.shape
         future_losses = {}
         future_predictions = {}
 
         for d in self.future_offsets:
             if T <= d:
                 continue
-            h_curr = h_online[:, :T-d, :]
+            h_curr = h_online[:, : T - d, :]
             x = self.predictor_embed(h_curr)
-            future_q = self.future_queries[f'offset_{d}'].expand(B, T-d, -1)
-            pos_emb = self.predictor_pos_embed[:, :T-d, :]
+            future_q = self.future_queries[f"offset_{d}"].expand(B, T - d, -1)
+            pos_emb = self.predictor_pos_embed[:, : T - d, :]
             x = x + future_q + pos_emb
 
             x_out = self._forward_predictor(x)  # no refinement for future
@@ -229,12 +236,14 @@ class TextSpanJEPApredictor(nn.Module):
     def forward(self, h_online, mask_positions, token_embeds, target_h):
         """Combined forward: span + future prediction."""
         span_preds, num_masked, valid_mask = self.forward_span_prediction(h_online, mask_positions)
-        future_losses, future_preds = self.forward_future_prediction(h_online, token_embeds, target_h)
+        future_losses, future_preds = self.forward_future_prediction(
+            h_online, token_embeds, target_h
+        )
         return span_preds, num_masked, valid_mask, future_losses, future_preds
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters())
 
+
 # Backward-compatible alias
 TextSpanJPAPredictor = TextSpanJEPApredictor
-

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import copy
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
+
 from src.models.encoder import TextSpanJEPAEncoder
 
 
@@ -33,14 +35,24 @@ class Data2VecTextBaseline(nn.Module):
     - EMA tau: annealed from ema_decay to ema_end_decay
     """
 
-    def __init__(self, vocab_size: int = 50304, max_seq_len: int = 512,
-                 embed_dim: int = 768, depth: int = 12, num_heads: int = 12,
-                 mlp_ratio: float = 4.0,
-                 average_top_k_layers: int = 8, loss_beta: float = 0.0,
-                 loss_scale: float | None = None,
-                 ema_decay: float = 0.999, ema_end_decay: float = 0.9999,
-                 ema_anneal_end_step: int = 100000,
-                 head_layers: int = 1, mask_token_id: int = 0, **kwargs):
+    def __init__(
+        self,
+        vocab_size: int = 50304,
+        max_seq_len: int = 512,
+        embed_dim: int = 768,
+        depth: int = 12,
+        num_heads: int = 12,
+        mlp_ratio: float = 4.0,
+        average_top_k_layers: int = 8,
+        loss_beta: float = 0.0,
+        loss_scale: float | None = None,
+        ema_decay: float = 0.999,
+        ema_end_decay: float = 0.9999,
+        ema_anneal_end_step: int = 100000,
+        head_layers: int = 1,
+        mask_token_id: int = 0,
+        **kwargs,
+    ):
         super().__init__()
         self.average_top_k_layers = average_top_k_layers
         self.loss_beta = loss_beta
@@ -55,8 +67,11 @@ class Data2VecTextBaseline(nn.Module):
         self.num_updates = 0
 
         self.encoder = TextSpanJEPAEncoder(
-            vocab_size=vocab_size, max_seq_len=max_seq_len,
-            embed_dim=embed_dim, depth=depth, num_heads=num_heads,
+            vocab_size=vocab_size,
+            max_seq_len=max_seq_len,
+            embed_dim=embed_dim,
+            depth=depth,
+            num_heads=num_heads,
             mlp_ratio=mlp_ratio,
         )
 
@@ -78,20 +93,21 @@ class Data2VecTextBaseline(nn.Module):
         if self.num_updates >= self.ema_anneal_end_step:
             return self.ema_end_decay
         return get_annealed_rate(
-            self.ema_decay, self.ema_end_decay,
-            self.num_updates, self.ema_anneal_end_step
+            self.ema_decay, self.ema_end_decay, self.num_updates, self.ema_anneal_end_step
         )
 
     @torch.no_grad()
     def update_target_encoder(self) -> None:
         decay = self.get_annealed_decay()
-        for param_q, param_k in zip(self.encoder.parameters(),
-                                     self.target_encoder.parameters()):
+        for param_q, param_k in zip(self.encoder.parameters(), self.target_encoder.parameters()):
             param_k.data.mul_(decay).add_((1.0 - decay) * param_q.detach().data)
 
-    def forward(self, masked_input_ids: torch.Tensor,
-                original_input_ids: torch.Tensor,
-                mask_positions: torch.Tensor) -> tuple[torch.Tensor, dict]:
+    def forward(
+        self,
+        masked_input_ids: torch.Tensor,
+        original_input_ids: torch.Tensor,
+        mask_positions: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict]:
         h_online, _ = self.encoder(masked_input_ids)
 
         with torch.no_grad():
@@ -110,17 +126,20 @@ class Data2VecTextBaseline(nn.Module):
 
         if x.size(0) == 0:
             zero = h_online.sum() * 0.0
-            return zero, {'loss_data2vec': 0.0, 'ema_decay': self.get_annealed_decay(),
-                          'num_masked': 0}
+            return zero, {
+                "loss_data2vec": 0.0,
+                "ema_decay": self.get_annealed_decay(),
+                "num_masked": 0,
+            }
 
         x = self.regression_head(x)
 
         sz = x.size(-1)
         if self.loss_beta == 0:
-            loss_per_token = F.mse_loss(x.float(), y.float(), reduction='none').sum(dim=-1)
+            loss_per_token = F.mse_loss(x.float(), y.float(), reduction="none").sum(dim=-1)
         else:
             loss_per_token = F.smooth_l1_loss(
-                x.float(), y.float(), reduction='none', beta=self.loss_beta
+                x.float(), y.float(), reduction="none", beta=self.loss_beta
             ).sum(dim=-1)
 
         loss_total = loss_per_token.sum()
@@ -136,17 +155,19 @@ class Data2VecTextBaseline(nn.Module):
             self.num_updates += 1
 
         return loss, {
-            'loss_data2vec': float(loss.item()),
-            'ema_decay': self.get_annealed_decay(),
-            'num_masked': int(sample_size),
+            "loss_data2vec": float(loss.item()),
+            "ema_decay": self.get_annealed_decay(),
+            "num_masked": int(sample_size),
         }
 
     def extra_repr(self) -> str:
-        return (f'vocab_size={self.encoder.token_embedding.num_embeddings}, '
-                f'embed_dim={self.encoder.embed_dim}, '
-                f'head_layers={len([m for m in self.regression_head if isinstance(m, nn.Linear)])}, '
-                f'average_top_k_layers={self.average_top_k_layers}, '
-                f'loss_beta={self.loss_beta}')
+        return (
+            f"vocab_size={self.encoder.token_embedding.num_embeddings}, "
+            f"embed_dim={self.encoder.embed_dim}, "
+            f"head_layers={len([m for m in self.regression_head if isinstance(m, nn.Linear)])}, "
+            f"average_top_k_layers={self.average_top_k_layers}, "
+            f"loss_beta={self.loss_beta}"
+        )
 
     def get_num_params(self, non_embedding: bool = True) -> int:
         enc = self.encoder.get_num_params(non_embedding)

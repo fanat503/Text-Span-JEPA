@@ -6,8 +6,8 @@
 # Tests whether representation geometry encodes syntactic structure
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class StructuralProbe(nn.Module):
@@ -39,17 +39,18 @@ class StructuralProbe(nn.Module):
         Returns:
             distances: (B, T, T) predicted pairwise tree distances
         """
-        B, T, D = representations.shape
+        _B, _T, _D = representations.shape
         # Project: h' = P h
         projected = representations @ self.proj.T  # (B, T, probe_rank)
         # Pairwise squared distances under projection
         # ||P h_i - P h_j||^2 = ||h'_i - h'_j||^2
         diff = projected.unsqueeze(2) - projected.unsqueeze(1)  # (B, T, T, R)
-        distances = (diff ** 2).sum(dim=-1)  # (B, T, T)
+        distances = (diff**2).sum(dim=-1)  # (B, T, T)
         return distances
 
-    def train_probe(self, representations_list, tree_distances_list,
-                    lr=0.001, epochs=30, device='cpu'):
+    def train_probe(
+        self, representations_list, tree_distances_list, lr=0.001, epochs=30, device="cpu"
+    ):
         """Train the structural probe on gold parse tree distances.
 
         Args:
@@ -90,7 +91,7 @@ class StructuralProbe(nn.Module):
         return loss_history
 
     @torch.no_grad()
-    def evaluate(self, representations_list, tree_distances_list, device='cpu'):
+    def evaluate(self, representations_list, tree_distances_list, device="cpu"):
         """Evaluate probe: Spearman correlation with gold tree distances.
 
         Args:
@@ -140,8 +141,8 @@ class StructuralProbe(nn.Module):
         uuas = correct_edges / max(total_edges, 1)
 
         return {
-            'spearman_r': spearman_r,
-            'uuas': uuas,
+            "spearman_r": spearman_r,
+            "uuas": uuas,
         }
 
     @staticmethod
@@ -152,7 +153,7 @@ class StructuralProbe(nn.Module):
             return parents
         for i in range(1, T):
             # Nearest earlier position (approximate root-finding)
-            min_dist = float('inf')
+            min_dist = float("inf")
             best_j = 0
             for j in range(i):
                 if dist_matrix[i, j].item() < min_dist:
@@ -171,7 +172,7 @@ class StructuralProbe(nn.Module):
             ry = y.argsort().argsort().float()
             rx = rx - rx.mean()
             ry = ry - ry.mean()
-            denom = (rx.norm() * ry.norm())
+            denom = rx.norm() * ry.norm()
             if denom == 0:
                 return 0.0
             return (rx @ ry / denom).item()

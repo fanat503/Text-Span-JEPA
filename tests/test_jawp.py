@@ -2,11 +2,11 @@
 # Licensed under the Apache License, Version 2.0
 # Tests for JAWP: Jacobian-Aligned Workspace Prediction (NOVEL MECHANISM)
 
-import pytest
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import math
+
+import torch
+import torch.nn.functional as F
+from torch import nn
 
 
 class TestJAWPCore:
@@ -14,10 +14,12 @@ class TestJAWPCore:
 
     def test_import(self):
         from src.models.jawp import JAWPModule
+
         assert JAWPModule is not None
 
     def test_creation(self):
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=128, k_start=1, k_end=13)
         assert jawp.embed_dim == 128
         assert jawp.k_start == 1
@@ -26,33 +28,37 @@ class TestJAWPCore:
 
     def test_no_beta_no_gamma(self):
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=1, k_end=7)
-        assert not hasattr(jawp, 'beta')
-        assert not hasattr(jawp, 'gamma')
+        assert not hasattr(jawp, "beta")
+        assert not hasattr(jawp, "gamma")
 
     def test_learned_Q_is_parameter(self):
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7)
         assert isinstance(jawp.workspace_Q, nn.Parameter)
         assert jawp.workspace_Q.requires_grad
 
     def test_identity_init(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=1, k_end=7, init='identity')
+
+        jawp = JAWPModule(embed_dim=64, k_start=1, k_end=7, init="identity")
         Q = jawp.workspace_Q.data
         assert torch.allclose(Q[:7, :7], torch.eye(7), atol=1e-6)
 
     def test_random_init_is_orthogonal(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=1, k_end=7, init='random')
+
+        jawp = JAWPModule(embed_dim=64, k_start=1, k_end=7, init="random")
         Q = jawp.workspace_Q.data
         gram = Q.T @ Q
         assert torch.allclose(gram, torch.eye(7), atol=1e-5)
 
     def test_cosine_curriculum(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=128, k_start=1, k_end=13,
-                          curriculum_steps=1000)
+
+        jawp = JAWPModule(embed_dim=128, k_start=1, k_end=13, curriculum_steps=1000)
         assert jawp.current_k(0) == 1
         k_mid = jawp.current_k(500)
         assert 4 <= k_mid <= 10
@@ -61,7 +67,8 @@ class TestJAWPCore:
 
     def test_stiefel_retract_keeps_orthonormal(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7, init='identity')
+
+        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7, init="identity")
         with torch.no_grad():
             jawp.workspace_Q.add_(torch.randn(64, 7) * 0.5)
         gram_before = jawp.workspace_Q.data.T @ jawp.workspace_Q.data
@@ -76,8 +83,8 @@ class TestJAWPLoss:
 
     def _make_jawp(self, **kwargs):
         from src.models.jawp import JAWPModule
-        defaults = dict(embed_dim=64, k_start=4, k_end=7,
-                        curriculum_steps=0, alpha=0.1)
+
+        defaults = {"embed_dim": 64, "k_start": 4, "k_end": 7, "curriculum_steps": 0, "alpha": 0.1}
         defaults.update(kwargs)
         return JAWPModule(**defaults)
 
@@ -85,14 +92,14 @@ class TestJAWPLoss:
         jawp = self._make_jawp()
         z_pred = torch.randn(8, 32, 64)
         z_target = torch.randn(8, 32, 64)
-        loss, info = jawp.compute_loss(z_pred, z_target, step=1000)
+        loss, _info = jawp.compute_loss(z_pred, z_target, step=1000)
         assert loss.item() >= 0
 
     def test_loss_uses_mse_not_smooth_l1(self):
         jawp = self._make_jawp(alpha=0.0)
         z_pred = torch.randn(32, 64)
         z_target = torch.randn(32, 64)
-        loss, info = jawp.compute_loss(z_pred, z_target, step=1000)
+        loss, _info = jawp.compute_loss(z_pred, z_target, step=1000)
         Q = jawp.workspace_Q.data[:, :7]
         expected = F.mse_loss(z_pred @ Q, z_target @ Q)
         assert abs(loss.item() - expected.item()) < 1e-4
@@ -102,10 +109,17 @@ class TestJAWPLoss:
         z_pred = torch.randn(8, 32, 64)
         z_target = torch.randn(8, 32, 64)
         _, info = jawp.compute_loss(z_pred, z_target, step=1000)
-        for key in ['loss_workspace', 'loss_predictor_focus', 'k',
-                    'workspace_utilization', 'target_ws_fraction',
-                    'workspace_cosine', 'ortho_score',
-                    'predictive_relevance', 'pca_alignment']:
+        for key in [
+            "loss_workspace",
+            "loss_predictor_focus",
+            "k",
+            "workspace_utilization",
+            "target_ws_fraction",
+            "workspace_cosine",
+            "ortho_score",
+            "predictive_relevance",
+            "pca_alignment",
+        ]:
             assert key in info, f"Missing key: {key}"
 
     def test_gradient_flows_through_Q(self):
@@ -142,17 +156,17 @@ class TestJAWPLoss:
         _, info_ws = jawp.compute_loss(z_pred_ws, z_target, step=1000)
         z_pred_bg = z_target - (z_target @ Q) @ Q.T
         _, info_bg = jawp.compute_loss(z_pred_bg + z_target, z_target, step=1000)
-        assert info_ws['loss_predictor_focus'] < info_bg['loss_predictor_focus']
+        assert info_ws["loss_predictor_focus"] < info_bg["loss_predictor_focus"]
 
     def test_diagnostics_bounded(self):
         jawp = self._make_jawp()
         z_pred = torch.randn(32, 64)
         z_target = torch.randn(32, 64)
         _, info = jawp.compute_loss(z_pred, z_target, step=1000)
-        assert 0 <= info['workspace_utilization'] <= 1.01
-        assert 0 <= info['target_ws_fraction'] <= 1.01
-        assert -1 <= info['workspace_cosine'] <= 1.01
-        assert 0 <= info['ortho_score'] <= 1.01
+        assert 0 <= info["workspace_utilization"] <= 1.01
+        assert 0 <= info["target_ws_fraction"] <= 1.01
+        assert -1 <= info["workspace_cosine"] <= 1.01
+        assert 0 <= info["ortho_score"] <= 1.01
 
     def test_no_nan_or_inf(self):
         jawp = self._make_jawp()
@@ -194,9 +208,11 @@ class TestJAWPCourantFischer:
 
     def test_gradient_form_matches_courant_fischer(self):
         from src.models.jawp import JAWPModule
+
         D, k, N = 32, 4, 64
-        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k,
-                          curriculum_steps=0, init='random', alpha=0.0)
+        jawp = JAWPModule(
+            embed_dim=D, k_start=k, k_end=k, curriculum_steps=0, init="random", alpha=0.0
+        )
         z_pred = torch.randn(N, D)
         z_target = torch.randn(N, D)
         Q = jawp.workspace_Q[:, :k]
@@ -213,15 +229,17 @@ class TestJAWPCourantFischer:
 
     def test_convergence_to_optimal_subspace(self):
         from src.models.jawp import JAWPModule
+
         D, k, N = 32, 4, 128
         z_pred, z_target = self._make_synthetic_data(D, k, N)
         R = z_pred - z_target
         Sigma_res = (R.T @ R) / (N - 1)
-        eigenvalues, eigenvectors = torch.linalg.eigh(Sigma_res)
+        _eigenvalues, eigenvectors = torch.linalg.eigh(Sigma_res)
         Q_optimal = eigenvectors[:, :k]
         optimal_risk = torch.trace(Q_optimal.T @ Sigma_res @ Q_optimal).item()
-        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k,
-                          curriculum_steps=0, init='random', alpha=0.0)
+        jawp = JAWPModule(
+            embed_dim=D, k_start=k, k_end=k, curriculum_steps=0, init="random", alpha=0.0
+        )
         optimizer = torch.optim.SGD([jawp.workspace_Q], lr=0.02)
         for _ in range(1000):
             loss, _ = jawp.compute_loss(z_pred, z_target, step=1000)
@@ -237,6 +255,7 @@ class TestJAWPCourantFischer:
 
     def test_corollary_jawp_leq_pca(self):
         from src.models.jawp import JAWPModule
+
         D, k, N = 32, 4, 128
         z_pred, z_target = self._make_synthetic_data(D, k, N)
         R = z_pred - z_target
@@ -245,8 +264,9 @@ class TestJAWPCourantFischer:
         _, V_pca = torch.linalg.eigh(cov_target)
         Q_pca = V_pca[:, -k:]
         pca_risk = torch.trace(Q_pca.T @ Sigma_res @ Q_pca).item()
-        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k,
-                          curriculum_steps=0, init='random', alpha=0.0)
+        jawp = JAWPModule(
+            embed_dim=D, k_start=k, k_end=k, curriculum_steps=0, init="random", alpha=0.0
+        )
         optimizer = torch.optim.SGD([jawp.workspace_Q], lr=0.02)
         for _ in range(1000):
             loss, _ = jawp.compute_loss(z_pred, z_target, step=1000)
@@ -261,14 +281,16 @@ class TestJAWPCourantFischer:
 
     def test_subspace_similarity_with_optimal(self):
         from src.models.jawp import JAWPModule
+
         D, k, N = 32, 4, 128
         z_pred, z_target = self._make_synthetic_data(D, k, N)
         R = z_pred - z_target
         Sigma_res = (R.T @ R) / (N - 1)
-        eigenvalues, eigenvectors = torch.linalg.eigh(Sigma_res)
+        _eigenvalues, eigenvectors = torch.linalg.eigh(Sigma_res)
         Q_optimal = eigenvectors[:, :k]
-        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k,
-                          curriculum_steps=0, init='random', alpha=0.0)
+        jawp = JAWPModule(
+            embed_dim=D, k_start=k, k_end=k, curriculum_steps=0, init="random", alpha=0.0
+        )
         optimizer = torch.optim.SGD([jawp.workspace_Q], lr=0.02)
         for _ in range(1000):
             loss, _ = jawp.compute_loss(z_pred, z_target, step=1000)
@@ -279,7 +301,7 @@ class TestJAWPCourantFischer:
             jawp.stiefel_retract()
         Q_learned = jawp.workspace_Q.data[:, :k]
         cross = Q_learned.T @ Q_optimal
-        similarity = (cross ** 2).sum() / k
+        similarity = (cross**2).sum() / k
         assert similarity > 0.9
 
 
@@ -288,8 +310,10 @@ class TestJAWPNovelty:
 
     def test_task_adaptivity_not_just_PCA(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=32, k_start=2, k_end=2,
-                          curriculum_steps=0, init='random', alpha=0.1)
+
+        jawp = JAWPModule(
+            embed_dim=32, k_start=2, k_end=2, curriculum_steps=0, init="random", alpha=0.1
+        )
         optimizer = torch.optim.Adam(jawp.parameters(), lr=0.02)
         for _ in range(300):
             z_pred = torch.randn(32, 32)
@@ -299,7 +323,9 @@ class TestJAWPNovelty:
             z_target[:, 2] = z_pred[:, 2] + torch.randn(32) * 0.1
             z_target[:, 3] = z_pred[:, 3] + torch.randn(32) * 0.1
             loss, _ = jawp.compute_loss(z_pred, z_target, step=1000)
-            optimizer.zero_grad(); loss.backward(); optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
             jawp.stiefel_retract()
         Q = jawp.workspace_Q.data[:, :2]
         pred_align = Q[2:4, :].norm().item()
@@ -313,31 +339,31 @@ class TestJAWPAPI:
 
     def test_get_workspace_basis(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7,
-                          curriculum_steps=0)
+
+        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7, curriculum_steps=0)
         Q = jawp.get_workspace_basis()
         assert Q.shape == (64, 4)
 
     def test_project_to_workspace(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7,
-                          curriculum_steps=0)
+
+        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7, curriculum_steps=0)
         z = torch.randn(8, 32, 64)
         z_ws = jawp.project_to_workspace(z)
         assert z_ws.shape == (8, 32, 4)
 
     def test_project_to_background(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7,
-                          curriculum_steps=0)
+
+        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7, curriculum_steps=0)
         z = torch.randn(8, 32, 64)
         z_bg = jawp.project_to_background(z)
         assert z_bg.shape == (8, 32, 64)
 
     def test_workspace_plus_background_equals_original(self):
         from src.models.jawp import JAWPModule
-        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7,
-                          curriculum_steps=0, init='identity')
+
+        jawp = JAWPModule(embed_dim=64, k_start=4, k_end=7, curriculum_steps=0, init="identity")
         z = torch.randn(8, 32, 64)
         Q = jawp.get_workspace_basis()
         z_ws = jawp.project_to_workspace(z)
@@ -347,24 +373,27 @@ class TestJAWPAPI:
 
     def test_drop_in_api(self):
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=768, k_start=1, k_end=77)
         z_pred = torch.randn(4, 32, 768)
         z_target = torch.randn(4, 32, 768)
-        loss, info = jawp.compute_loss(z_pred, z_target, step=5000)
+        loss, _info = jawp.compute_loss(z_pred, z_target, step=5000)
         assert math.isfinite(loss.item())
 
     def test_all_shapes_correct(self):
         from src.models.jawp import JAWPModule
+
         D, k_start, k_end = 64, 2, 7
-        jawp = JAWPModule(embed_dim=D, k_start=k_start, k_end=k_end,
-                          curriculum_steps=0, init='identity')
+        jawp = JAWPModule(
+            embed_dim=D, k_start=k_start, k_end=k_end, curriculum_steps=0, init="identity"
+        )
         assert jawp.workspace_Q.shape == (D, k_end)
         B, T = 4, 16
         z_pred = torch.randn(B, T, D)
         z_target = torch.randn(B, T, D)
         loss, info = jawp.compute_loss(z_pred, z_target, step=1000)
         assert loss.shape == torch.Size([])
-        assert info['k'] == k_end
+        assert info["k"] == k_end
         Q = jawp.get_workspace_basis()
         assert Q.shape == (D, k_end)
         z_ws = jawp.project_to_workspace(z_pred)
@@ -381,12 +410,20 @@ class TestJAWPWithJEPA:
 
     def test_jepa_with_jawp(self):
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
-            embed_dim=64, encoder_depth=2, num_heads=4,
-            predictor_embed_dim=32, predictor_depth=1,
-            max_seq_len=32, vocab_size=100,
-            use_jawp=True, jawk_k_start=1, jawk_k_end=7,
-            future_offsets=(1,), num_refine_steps=0,
+            embed_dim=64,
+            encoder_depth=2,
+            num_heads=4,
+            predictor_embed_dim=32,
+            predictor_depth=1,
+            max_seq_len=32,
+            vocab_size=100,
+            use_jawp=True,
+            jawk_k_start=1,
+            jawk_k_end=7,
+            future_offsets=(1,),
+            num_refine_steps=0,
         )
         config.validate()
         model = TextSpanJEPA(config)
@@ -394,12 +431,18 @@ class TestJAWPWithJEPA:
 
     def test_jepa_without_jawp(self):
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
-            embed_dim=64, encoder_depth=2, num_heads=4,
-            predictor_embed_dim=32, predictor_depth=1,
-            max_seq_len=32, vocab_size=100,
+            embed_dim=64,
+            encoder_depth=2,
+            num_heads=4,
+            predictor_embed_dim=32,
+            predictor_depth=1,
+            max_seq_len=32,
+            vocab_size=100,
             use_jawp=False,
-            future_offsets=(1,), num_refine_steps=0,
+            future_offsets=(1,),
+            num_refine_steps=0,
         )
         config.validate()
         model = TextSpanJEPA(config)
@@ -407,12 +450,20 @@ class TestJAWPWithJEPA:
 
     def test_loss_with_jawp_is_valid(self):
         from src.models.jepa import TextSpanJEPA, TextSpanJEPAConfig
+
         config = TextSpanJEPAConfig(
-            embed_dim=64, encoder_depth=2, num_heads=4,
-            predictor_embed_dim=32, predictor_depth=1,
-            max_seq_len=32, vocab_size=100,
-            use_jawp=True, jawk_k_start=1, jawk_k_end=7,
-            future_offsets=(1,), num_refine_steps=0,
+            embed_dim=64,
+            encoder_depth=2,
+            num_heads=4,
+            predictor_embed_dim=32,
+            predictor_depth=1,
+            max_seq_len=32,
+            vocab_size=100,
+            use_jawp=True,
+            jawk_k_start=1,
+            jawk_k_end=7,
+            future_offsets=(1,),
+            num_refine_steps=0,
         )
         config.validate()
         model = TextSpanJEPA(config)
@@ -420,8 +471,9 @@ class TestJAWPWithJEPA:
         original = torch.randint(0, 100, (2, 32))
         mask = torch.zeros(2, 32, dtype=torch.long)
         mask[:, 8:16] = 1
-        total_loss, loss_dict, diag_dict = model.compute_loss_with_targets(
-            masked, original, mask, current_step=100, total_steps=1000)
+        total_loss, _loss_dict, _diag_dict = model.compute_loss_with_targets(
+            masked, original, mask, current_step=100, total_steps=1000
+        )
         assert math.isfinite(total_loss.item())
         assert total_loss.item() > 0
 
@@ -437,18 +489,21 @@ class TestWorkspaceInformationPreservation:
     def test_wip_score_perfect_when_features_in_workspace(self):
         """If exogenous features lie entirely in workspace, WIP = 1.0."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=7, k_end=7, alpha=0.1)
         Q = jawp.workspace_Q.data[:, :7]
         features = Q.T
         z_pred = torch.randn(16, 64)
         z_target = torch.randn(16, 64)
-        wip_score, wip_info = jawp.workspace_information_preservation(
-            z_pred, z_target, features=features)
+        wip_score, _wip_info = jawp.workspace_information_preservation(
+            z_pred, z_target, features=features
+        )
         assert wip_score > 0.99, f"WIP should be ~1.0 for workspace features, got {wip_score}"
 
     def test_wip_score_zero_when_features_orthogonal(self):
         """If features are orthogonal to workspace, WIP approx 0.0."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=7, k_end=7, alpha=0.1)
         Q = jawp.workspace_Q.data[:, :7]
         rand_features = torch.randn(7, 64)
@@ -457,13 +512,15 @@ class TestWorkspaceInformationPreservation:
             features = features / features.norm() * 7.0
             z_pred = torch.randn(16, 64)
             z_target = torch.randn(16, 64)
-            wip_score, wip_info = jawp.workspace_information_preservation(
-                z_pred, z_target, features=features)
+            wip_score, _wip_info = jawp.workspace_information_preservation(
+                z_pred, z_target, features=features
+            )
             assert wip_score < 0.01, f"WIP should be ~0.0 for orthogonal features, got {wip_score}"
 
     def test_wip_score_bounded(self):
         """WIP score is always in [0, 1]."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=3, k_end=7, alpha=0.1)
         z_pred = torch.randn(16, 64)
         z_target = torch.randn(16, 64)
@@ -473,17 +530,19 @@ class TestWorkspaceInformationPreservation:
     def test_wip_with_proxy_pca_features(self):
         """WIP with proxy PCA features returns valid score."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=64, k_start=3, k_end=7, alpha=0.1)
         z_pred = torch.randn(32, 64)
         z_target = torch.randn(32, 64)
         wip_score, wip_info = jawp.workspace_information_preservation(z_pred, z_target)
         assert 0.0 <= wip_score <= 1.0
-        assert 'method' in wip_info
-        assert wip_info['method'] == 'wip_theorem'
+        assert "method" in wip_info
+        assert wip_info["method"] == "wip_theorem"
 
     def test_wip_theorem_contradiction_proof(self):
         """Verify WIP theorem: excluding predictive feature increases loss."""
         from src.models.jawp import JAWPModule
+
         D, k = 32, 4
         torch.manual_seed(42)
         z_target = torch.randn(64, D)
@@ -498,16 +557,19 @@ class TestWorkspaceInformationPreservation:
         loss_good, _ = jawp_good.compute_loss(z_pred, z_target, step=1000)
 
         Q_bad = torch.zeros(D, k)
-        Q_bad[D-k:, :] = torch.eye(k)
+        Q_bad[D - k :, :] = torch.eye(k)
         jawp_bad = JAWPModule(embed_dim=D, k_start=k, k_end=k)
         jawp_bad.workspace_Q.data.copy_(Q_bad)
         loss_bad, _ = jawp_bad.compute_loss(z_pred, z_target, step=1000)
 
-        assert loss_good.item() < loss_bad.item(),             f"WIP theorem violation: good_ws loss {loss_good.item():.4f} >= bad_ws loss {loss_bad.item():.4f}"
+        assert (
+            loss_good.item() < loss_bad.item()
+        ), f"WIP theorem violation: good_ws loss {loss_good.item():.4f} >= bad_ws loss {loss_bad.item():.4f}"
 
     def test_wip_preserves_exogenous_features(self):
         """Exogenous features with I(f; z_target) > 0 are preserved."""
         from src.models.jawp import JAWPModule
+
         D, k = 32, 4
         torch.manual_seed(42)
         f_exo = torch.zeros(1, D)
@@ -516,9 +578,8 @@ class TestWorkspaceInformationPreservation:
         z_target[:, 0] = torch.randn(64) * 3.0
         z_pred = z_target + torch.randn(64, D) * 0.1
 
-        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k, init='identity')
-        wip_score, _ = jawp.workspace_information_preservation(
-            z_pred, z_target, features=f_exo)
+        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k, init="identity")
+        wip_score, _ = jawp.workspace_information_preservation(z_pred, z_target, features=f_exo)
         assert wip_score > 0.5, f"Exogenous feature should be preserved, WIP={wip_score}"
 
 
@@ -528,6 +589,7 @@ class TestBackgroundComplexity:
     def test_background_complexity_high_for_good_split(self):
         """Good workspace/background split has high background complexity."""
         from src.models.jawp import JAWPModule
+
         D, k = 32, 4
         torch.manual_seed(42)
         z_target = torch.randn(64, D)
@@ -535,22 +597,23 @@ class TestBackgroundComplexity:
         z_pred = z_target.clone()
         z_pred[:, k:] = torch.randn(64, D - k)
 
-        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k, init='identity')
-        bg_complexity, bg_info = jawp.compute_background_complexity(z_pred, z_target)
+        jawp = JAWPModule(embed_dim=D, k_start=k, k_end=k, init="identity")
+        bg_complexity, _bg_info = jawp.compute_background_complexity(z_pred, z_target)
         assert bg_complexity >= 1.0, f"Expected high bg complexity, got {bg_complexity}"
 
     def test_background_complexity_returns_valid_dict(self):
         """Background complexity returns proper info dict."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         z_pred = torch.randn(16, 32)
         z_target = torch.randn(16, 32)
-        bg_complexity, bg_info = jawp.compute_background_complexity(z_pred, z_target)
+        _bg_complexity, bg_info = jawp.compute_background_complexity(z_pred, z_target)
         assert isinstance(bg_info, dict)
-        assert 'ws_residual' in bg_info
-        assert 'bg_residual' in bg_info
-        assert 'bg_complexity_ratio' in bg_info
-        assert bg_info['k'] == 4
+        assert "ws_residual" in bg_info
+        assert "bg_residual" in bg_info
+        assert "bg_complexity_ratio" in bg_info
+        assert bg_info["k"] == 4
 
 
 class TestGrassmannOptimization:
@@ -563,6 +626,7 @@ class TestGrassmannOptimization:
     def test_grassmann_retract_removes_gauge(self):
         """Grassmann retract removes the gauge component."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         # Simulate gradient with gauge component
         Q = jawp.workspace_Q.data[:, :4]
@@ -575,6 +639,7 @@ class TestGrassmannOptimization:
     def test_grassmann_retract_preserves_subspace(self):
         """Grassmann retract doesn't change the subspace span(Q)."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         # Save subspace before
         Q_before = jawp.workspace_Q.data[:, :4].clone()
@@ -584,8 +649,8 @@ class TestGrassmannOptimization:
         Q_after = jawp.workspace_Q.data[:, :4]
         # Subspace should have changed (not just rotated)
         # Verify by checking projection operator QQ^T
-        proj_before = Q_before @ Q_before.T
-        proj_after = Q_after @ Q_after.T
+        Q_before @ Q_before.T
+        Q_after @ Q_after.T
         # They should differ (gradient moved the subspace)
         # But Q should still be orthonormal
         gram = Q_after.T @ Q_after
@@ -596,6 +661,7 @@ class TestGrassmannOptimization:
     def test_grassmann_retract_returns_gauge_norm(self):
         """grassmann_retract returns the gauge component norm."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         jawp.workspace_Q.grad = torch.randn(32, 4) * 0.01
         gauge_norm = jawp.grassmann_retract()
@@ -605,6 +671,7 @@ class TestGrassmannOptimization:
     def test_principal_angles_identical_subspace(self):
         """Principal angles are zero for identical subspaces."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         Q = jawp.workspace_Q.data[:, :4].clone()
         angles, cosines = jawp.principal_angles(other_Q=Q)
@@ -616,6 +683,7 @@ class TestGrassmannOptimization:
     def test_principal_angles_orthogonal_subspaces(self):
         """Principal angles are π/2 for orthogonal subspaces."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         Q1 = jawp.workspace_Q.data[:, :4]
         # Create orthogonal Q2
@@ -623,13 +691,14 @@ class TestGrassmannOptimization:
         orth = orth - Q1 @ (Q1.T @ orth)  # project out Q1
         if orth.norm() > 1e-6:
             Q2, _ = torch.linalg.qr(orth)
-            angles, cosines = jawp.principal_angles(other_Q=Q2)
+            angles, _cosines = jawp.principal_angles(other_Q=Q2)
             for a in angles:
                 assert a > 1.0, f"Angle should be ~π/2 for orthogonal subspaces, got {a}"
 
     def test_principal_angles_gauge_invariant(self):
         """Principal angles don't change under O(k) rotation."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         Q = jawp.workspace_Q.data[:, :4].clone()
         # Rotate Q by random orthogonal R
@@ -643,6 +712,7 @@ class TestGrassmannOptimization:
     def test_subspace_distance_zero_for_same(self):
         """Subspace distance is zero for identical subspaces."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         Q = jawp.workspace_Q.data[:, :4].clone()
         d = jawp.subspace_distance(other_Q=Q)
@@ -651,9 +721,10 @@ class TestGrassmannOptimization:
     def test_subspace_distance_positive_for_different(self):
         """Subspace distance is positive for different subspaces."""
         from src.models.jawp import JAWPModule
+
         torch.manual_seed(42)
-        jawp1 = JAWPModule(embed_dim=32, k_start=4, k_end=4, init='identity')
-        jawp2 = JAWPModule(embed_dim=32, k_start=4, k_end=4, init='random')
+        jawp1 = JAWPModule(embed_dim=32, k_start=4, k_end=4, init="identity")
+        jawp2 = JAWPModule(embed_dim=32, k_start=4, k_end=4, init="random")
         Q2 = jawp2.workspace_Q.data[:, :4]
         d = jawp1.subspace_distance(other_Q=Q2)
         assert d > 0.01, f"Distance should be >0 for different subspaces, got {d}"
@@ -665,6 +736,7 @@ class TestGrassmannOptimization:
         accelerates convergence by eliminating oscillation.
         """
         from src.models.jawp import JAWPModule
+
         D, k = 32, 4
         torch.manual_seed(42)
 
@@ -674,8 +746,7 @@ class TestGrassmannOptimization:
         z_pred = z_target + torch.randn(64, D) * 0.5
 
         # Track subspace movement with Grassmann
-        jawp_g = JAWPModule(embed_dim=D, k_start=k, k_end=k, init='random')
-        distances_g = []
+        jawp_g = JAWPModule(embed_dim=D, k_start=k, k_end=k, init="random")
         for _ in range(5):
             loss, _ = jawp_g.compute_loss(z_pred, z_target, step=1000)
             loss.backward()
@@ -685,7 +756,7 @@ class TestGrassmannOptimization:
 
         # Track subspace movement with Stiefel
         torch.manual_seed(42)
-        jawp_s = JAWPModule(embed_dim=D, k_start=k, k_end=k, init='random')
+        jawp_s = JAWPModule(embed_dim=D, k_start=k, k_end=k, init="random")
         for _ in range(5):
             loss, _ = jawp_s.compute_loss(z_pred, z_target, step=1000)
             loss.backward()
@@ -702,14 +773,16 @@ class TestGrassmannOptimization:
     def test_save_workspace_snapshot(self):
         """save_workspace_snapshot stores Q for later comparison."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         jawp.save_workspace_snapshot()
-        assert hasattr(jawp, '_prev_workspace_Q')
+        assert hasattr(jawp, "_prev_workspace_Q")
         assert jawp._prev_workspace_Q.shape == (32, 4)
 
     def test_grassmann_retract_no_grad(self):
         """grassmann_retract works even with no gradient (inference)."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         # No gradient set
         gauge_norm = jawp.grassmann_retract()
@@ -726,27 +799,32 @@ class TestPredictiveRank:
     def test_compute_predictive_rank_full(self):
         """Full-rank predictor gives effective_rank ≈ k."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         z_pred = torch.randn(64, 32)  # full rank
         info = jawp.compute_predictive_rank(z_pred)
-        assert info['effective_rank'] > 2.0, f"Expected high effective rank, got {info['effective_rank']}"
-        assert 0.0 <= info['rank_utilization'] <= 1.0
+        assert (
+            info["effective_rank"] > 2.0
+        ), f"Expected high effective rank, got {info['effective_rank']}"
+        assert 0.0 <= info["rank_utilization"] <= 1.0
 
     def test_compute_predictive_rank_returns_valid(self):
         """compute_predictive_rank returns valid dict."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         z_pred = torch.randn(16, 32)
         info = jawp.compute_predictive_rank(z_pred)
-        assert 'effective_rank' in info
-        assert 'singular_values' in info
-        assert 'rank_utilization' in info
-        assert 'min_singular' in info
-        assert 'condition_number' in info
+        assert "effective_rank" in info
+        assert "singular_values" in info
+        assert "rank_utilization" in info
+        assert "min_singular" in info
+        assert "condition_number" in info
 
     def test_predictive_rank_loss_full_rank(self):
         """Log-det loss is finite for full-rank workspace covariance."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         z_pred = torch.randn(64, 32)
         loss = jawp.predictive_rank_loss(z_pred)
@@ -755,6 +833,7 @@ class TestPredictiveRank:
     def test_predictive_rank_loss_differentiable(self):
         """predictive_rank_loss is differentiable w.r.t. Q."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         z_pred = torch.randn(64, 32)
         loss = jawp.predictive_rank_loss(z_pred)
@@ -767,6 +846,7 @@ class TestPredictiveRank:
     def test_predictive_rank_loss_prevents_collapse(self):
         """RankE loss increases as workspace covariance collapses."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         # Full rank: diverse predictions
         z_full = torch.randn(64, 32)
@@ -775,14 +855,16 @@ class TestPredictiveRank:
         z_collapse = torch.randn(64, 1).expand(64, 32) * 0.1
         loss_collapse = jawp.predictive_rank_loss(z_collapse)
         # Collapsed should have HIGHER loss (more negative log-det)
-        assert loss_collapse.item() > loss_full.item(), \
-            f"Collapse loss {loss_collapse.item():.2f} should exceed full loss {loss_full.item():.2f}"
+        assert (
+            loss_collapse.item() > loss_full.item()
+        ), f"Collapse loss {loss_collapse.item():.2f} should exceed full loss {loss_full.item():.2f}"
 
     def test_rank_utilization_bounded(self):
         """Rank utilization is always in [0, 1]."""
         from src.models.jawp import JAWPModule
+
         jawp = JAWPModule(embed_dim=32, k_start=4, k_end=4)
         for _ in range(5):
             z_pred = torch.randn(32, 32) * torch.rand(1).item()
             info = jawp.compute_predictive_rank(z_pred)
-            assert 0.0 <= info['rank_utilization'] <= 1.0
+            assert 0.0 <= info["rank_utilization"] <= 1.0

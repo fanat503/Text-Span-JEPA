@@ -62,11 +62,12 @@
 #     from src.models.rdc import rdc_compensate
 #     loss_rdc, info = rdc_compensate(z_current, z_previous, workspace_Q)
 
+from __future__ import annotations
+
 import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, Tuple, Optional
+from torch import nn
 
 
 class RepresentationDriftCompensation(nn.Module):
@@ -96,7 +97,7 @@ class RepresentationDriftCompensation(nn.Module):
         eta: float = 0.01,
         ema_beta: float = 0.999,
         warmup_steps: int = 500,
-        k_workspace: Optional[int] = None,
+        k_workspace: int | None = None,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -106,26 +107,23 @@ class RepresentationDriftCompensation(nn.Module):
         self.k_workspace = k_workspace or max(embed_dim // 10, 1)
 
         # Running statistics
-        self.register_buffer('running_drift_norm', torch.tensor(0.0))
-        self.register_buffer('running_ortho_drift_norm', torch.tensor(0.0))
-        self.register_buffer('running_workspace_drift_norm', torch.tensor(0.0))
-        self.register_buffer('running_drift_ratio', torch.tensor(0.0))
-        self.register_buffer('total_steps', torch.tensor(0, dtype=torch.long))
-        self.register_buffer('z_previous', torch.zeros(embed_dim))  # running mean of z
+        self.register_buffer("running_drift_norm", torch.tensor(0.0))
+        self.register_buffer("running_ortho_drift_norm", torch.tensor(0.0))
+        self.register_buffer("running_workspace_drift_norm", torch.tensor(0.0))
+        self.register_buffer("running_drift_ratio", torch.tensor(0.0))
+        self.register_buffer("total_steps", torch.tensor(0, dtype=torch.long))
+        self.register_buffer("z_previous", torch.zeros(embed_dim))  # running mean of z
 
         # Workspace projection (learned on Stiefel manifold)
-        self.register_buffer(
-            'workspace_Q',
-            torch.eye(embed_dim, self.k_workspace)
-        )
+        self.register_buffer("workspace_Q", torch.eye(embed_dim, self.k_workspace))
 
     def forward(
         self,
         z_current: torch.Tensor,
-        z_previous: Optional[torch.Tensor] = None,
-        workspace_Q: Optional[torch.Tensor] = None,
+        z_previous: torch.Tensor | None = None,
+        workspace_Q: torch.Tensor | None = None,
         step: int = 0,
-    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+    ) -> tuple[torch.Tensor, dict[str, any]]:
         """Compute RDC compensation loss.
 
         Args:
@@ -140,13 +138,13 @@ class RepresentationDriftCompensation(nn.Module):
             loss: scalar tensor (≥ 0).
             info: dict with diagnostics.
         """
-        B, T, D = z_current.shape
+        _B, _T, D = z_current.shape
 
         # Warmup
         warmup_factor = min(1.0, step / max(self.warmup_steps, 1))
         if warmup_factor < 1e-6:
             zero = torch.tensor(0.0, device=z_current.device)
-            return zero, {'rdc_loss': 0.0, 'rdc_warmup': True}
+            return zero, {"rdc_loss": 0.0, "rdc_warmup": True}
 
         # Get workspace projection
         Q = workspace_Q if workspace_Q is not None else self.workspace_Q
@@ -161,9 +159,9 @@ class RepresentationDriftCompensation(nn.Module):
             drift_flat = drift.reshape(-1, D)  # (N, D)
         else:
             # Use running mean as previous
-            drift_flat = (z_current.reshape(-1, D) - self.z_previous.unsqueeze(0))  # (N, D)
+            drift_flat = z_current.reshape(-1, D) - self.z_previous.unsqueeze(0)  # (N, D)
 
-        N = drift_flat.size(0)
+        drift_flat.size(0)
 
         # Decompose drift into workspace and orthogonal components
         # Workspace component: Δz_∥ = Q Q^T Δz
@@ -192,14 +190,14 @@ class RepresentationDriftCompensation(nn.Module):
         # --- Diagnostics ---
         with torch.no_grad():
             # Update running mean of z
-            self.z_previous.mul_(self.ema_beta).add_(
-                (1 - self.ema_beta) * z_mean
-            )
+            self.z_previous.mul_(self.ema_beta).add_((1 - self.ema_beta) * z_mean)
 
             # Update running statistics
             self.running_drift_norm.mul_(0.99).add_(0.01 * mean_total_drift.sqrt().item())
             self.running_ortho_drift_norm.mul_(0.99).add_(0.01 * mean_ortho_drift.sqrt().item())
-            self.running_workspace_drift_norm.mul_(0.99).add_(0.01 * mean_workspace_drift.sqrt().item())
+            self.running_workspace_drift_norm.mul_(0.99).add_(
+                0.01 * mean_workspace_drift.sqrt().item()
+            )
 
             # Drift ratio: ||Δz_⊥|| / ||Δz|| (0 = all drift in workspace, 1 = all orthogonal)
             if mean_total_drift > 1e-12:
@@ -214,20 +212,22 @@ class RepresentationDriftCompensation(nn.Module):
         T_eff = min(step, 10000)
         transient_bound = eps_estimate * ((1 - self.eta) ** T_eff) * T_eff / math.sqrt(max(k, 1))
         # Stationary bound: ε(1-η)/(η·√k) — tight, independent of T
-        stationary_bound = eps_estimate * (1 - self.eta) / (max(self.eta, 1e-8) * math.sqrt(max(k, 1)))
+        stationary_bound = (
+            eps_estimate * (1 - self.eta) / (max(self.eta, 1e-8) * math.sqrt(max(k, 1)))
+        )
 
         info = {
-            'rdc_loss': loss.item(),
-            'rdc_ortho_drift_norm': mean_ortho_drift.sqrt().item(),
-            'rdc_workspace_drift_norm': mean_workspace_drift.sqrt().item(),
-            'rdc_total_drift_norm': mean_total_drift.sqrt().item(),
-            'rdc_drift_ratio': drift_ratio,
-            'rdc_warmup_factor': warmup_factor,
-            'rdc_k_workspace': k,
-            'rdc_theoretical_bound': min(transient_bound, stationary_bound),
-            'rdc_transient_bound': transient_bound,
-            'rdc_stationary_bound': stationary_bound,
-            'rdc_eta': self.eta,
+            "rdc_loss": loss.item(),
+            "rdc_ortho_drift_norm": mean_ortho_drift.sqrt().item(),
+            "rdc_workspace_drift_norm": mean_workspace_drift.sqrt().item(),
+            "rdc_total_drift_norm": mean_total_drift.sqrt().item(),
+            "rdc_drift_ratio": drift_ratio,
+            "rdc_warmup_factor": warmup_factor,
+            "rdc_k_workspace": k,
+            "rdc_theoretical_bound": min(transient_bound, stationary_bound),
+            "rdc_transient_bound": transient_bound,
+            "rdc_stationary_bound": stationary_bound,
+            "rdc_eta": self.eta,
         }
 
         return loss, info
@@ -241,22 +241,28 @@ class RepresentationDriftCompensation(nn.Module):
         with torch.no_grad():
             self.workspace_Q[:, :k].copy_(Q[:, :k])
 
-    def checkpoint_dict(self) -> Dict[str, any]:
+    def checkpoint_dict(self) -> dict[str, any]:
         """Get state for checkpoint save."""
         return {
-            'running_drift_norm': self.running_drift_norm.clone(),
-            'running_ortho_drift_norm': self.running_ortho_drift_norm.clone(),
-            'running_workspace_drift_norm': self.running_workspace_drift_norm.clone(),
-            'running_drift_ratio': self.running_drift_ratio.clone(),
-            'total_steps': self.total_steps.clone(),
-            'z_previous': self.z_previous.clone(),
-            'workspace_Q': self.workspace_Q.clone(),
+            "running_drift_norm": self.running_drift_norm.clone(),
+            "running_ortho_drift_norm": self.running_ortho_drift_norm.clone(),
+            "running_workspace_drift_norm": self.running_workspace_drift_norm.clone(),
+            "running_drift_ratio": self.running_drift_ratio.clone(),
+            "total_steps": self.total_steps.clone(),
+            "z_previous": self.z_previous.clone(),
+            "workspace_Q": self.workspace_Q.clone(),
         }
 
-    def load_checkpoint(self, ckpt: Dict[str, any]):
+    def load_checkpoint(self, ckpt: dict[str, any]):
         """Restore from checkpoint."""
-        for key in ['running_drift_norm', 'running_ortho_drift_norm',
-                     'running_workspace_drift_norm', 'running_drift_ratio',
-                     'total_steps', 'z_previous', 'workspace_Q']:
+        for key in [
+            "running_drift_norm",
+            "running_ortho_drift_norm",
+            "running_workspace_drift_norm",
+            "running_drift_ratio",
+            "total_steps",
+            "z_previous",
+            "workspace_Q",
+        ]:
             if key in ckpt:
                 getattr(self, key).copy_(ckpt[key])

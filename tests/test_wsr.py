@@ -2,11 +2,9 @@
 # Licensed under the Apache License, Version 2.0
 """Tests for Workspace Sharpness Regularization (WSR) — mechanism #16."""
 
-import math
 import pytest
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 
 from src.models.wsr import WorkspaceSharpnessRegularization, wsr_sharpness
 
@@ -18,15 +16,15 @@ class TestWSRBasic:
         wsr = WorkspaceSharpnessRegularization(embed_dim=64)
         assert wsr.rho == 0.05
         assert wsr.eta == 0.01
-        assert wsr.mode == 'gradient'
+        assert wsr.mode == "gradient"
 
     def test_construction_sam_mode(self):
-        wsr = WorkspaceSharpnessRegularization(embed_dim=64, mode='sam')
-        assert wsr.mode == 'sam'
+        wsr = WorkspaceSharpnessRegularization(embed_dim=64, mode="sam")
+        assert wsr.mode == "sam"
 
     def test_construction_invalid_mode(self):
         with pytest.raises(ValueError):
-            WorkspaceSharpnessRegularization(embed_dim=64, mode='invalid')
+            WorkspaceSharpnessRegularization(embed_dim=64, mode="invalid")
 
     def test_output_shape(self):
         wsr = WorkspaceSharpnessRegularization(embed_dim=64)
@@ -42,7 +40,7 @@ class TestWSRBasic:
         for _ in range(20):
             Q = torch.randn(64, 8)
             Q, _ = torch.linalg.qr(Q)
-            loss, info = wsr(Q, step=1000)
+            loss, _info = wsr(Q, step=1000)
             assert loss.item() >= 0, f"WSR loss must be ≥ 0, got {loss.item()}"
 
     def test_warmup_returns_zero(self):
@@ -52,17 +50,17 @@ class TestWSRBasic:
         Q, _ = torch.linalg.qr(Q)
         loss, info = wsr(Q, step=0)
         assert loss.item() == 0.0
-        assert info.get('wsr_warmup', False) is True
+        assert info.get("wsr_warmup", False) is True
 
     def test_warmup_partial(self):
         """WSR should partially activate during warmup."""
         wsr = WorkspaceSharpnessRegularization(embed_dim=64, warmup_steps=1000)
         Q = torch.randn(64, 8)
         Q, _ = torch.linalg.qr(Q)
-        loss_early, info_early = wsr(Q, step=100)
-        loss_late, info_late = wsr(Q, step=900)
+        _loss_early, info_early = wsr(Q, step=100)
+        _loss_late, info_late = wsr(Q, step=900)
         # Late warmup should have higher warmup_factor
-        assert info_late['wsr_warmup_factor'] > info_early['wsr_warmup_factor']
+        assert info_late["wsr_warmup_factor"] > info_early["wsr_warmup_factor"]
 
 
 class TestWSRGrassmannGradient:
@@ -149,9 +147,9 @@ class TestWSRSharpnessDecomposition:
         Q, _ = torch.linalg.qr(Q)
         Q.grad = torch.randn(64, 8)  # set a gradient
 
-        loss, info = wsr(Q, step=1000)
-        assert info['wsr_spectral_sharpness'] >= 0
-        assert info['wsr_directional_sharpness'] >= 0
+        _loss, info = wsr(Q, step=1000)
+        assert info["wsr_spectral_sharpness"] >= 0
+        assert info["wsr_directional_sharpness"] >= 0
 
     def test_sharpness_bounds_total(self):
         """Total sharpness ≤ spectral + directional (triangle inequality)."""
@@ -161,9 +159,9 @@ class TestWSRSharpnessDecomposition:
             Q, _ = torch.linalg.qr(Q)
             Q.grad = torch.randn(64, 8)
 
-            loss, info = wsr(Q, step=1000)
-            total = info['wsr_spectral_sharpness'] + info['wsr_directional_sharpness']
-            assert info['wsr_sharpness'] <= total + 1e-5
+            _loss, info = wsr(Q, step=1000)
+            total = info["wsr_spectral_sharpness"] + info["wsr_directional_sharpness"]
+            assert info["wsr_sharpness"] <= total + 1e-5
 
 
 class TestWSRGeneralizationBound:
@@ -206,7 +204,7 @@ class TestWSRGeneralizationBound:
         wsr(Q, step=1000)
 
         bound = wsr.compute_generalization_bound(n_samples=0)
-        assert bound == float('inf')
+        assert bound == float("inf")
 
 
 class TestWSRPACBayes:
@@ -264,12 +262,12 @@ class TestWSRRunningStatistics:
         # First call
         Q.grad = torch.randn(64, 8) * 0.1
         wsr(Q, step=1000)
-        first_sharpness = wsr.running_sharpness.item()
+        wsr.running_sharpness.item()
 
         # Second call with larger gradient
         Q.grad = torch.randn(64, 8) * 1.0
         wsr(Q, step=1001)
-        second_sharpness = wsr.running_sharpness.item()
+        wsr.running_sharpness.item()
 
         # Should have changed (EMA updated)
         # Not guaranteed to increase, but should be different
@@ -284,7 +282,7 @@ class TestWSROnelineAPI:
         Q, _ = torch.linalg.qr(Q)
         loss, info = wsr_sharpness(Q, embed_dim=64, step=1000)
         assert loss.item() >= 0
-        assert 'wsr_loss' in info
+        assert "wsr_loss" in info
 
     def test_oneline_matches_module(self):
         """One-line API should produce same result as module."""
@@ -292,10 +290,10 @@ class TestWSROnelineAPI:
         Q, _ = torch.linalg.qr(Q)
         Q.grad = torch.randn(64, 8)
 
-        loss1, info1 = wsr_sharpness(Q, embed_dim=64, rho=0.05, eta=0.01, step=1000)
+        loss1, _info1 = wsr_sharpness(Q, embed_dim=64, rho=0.05, eta=0.01, step=1000)
 
         wsr = WorkspaceSharpnessRegularization(embed_dim=64, rho=0.05, eta=0.01)
-        loss2, info2 = wsr(Q, step=1000)
+        loss2, _info2 = wsr(Q, step=1000)
 
         # Results should be similar (not exact due to different random init of internal state)
         assert abs(loss1.item() - loss2.item()) < 1.0  # loose bound
@@ -318,9 +316,9 @@ class TestWSRIntegration:
 
         loss, info = wsr(Q, step=1000)
         assert loss.item() >= 0
-        assert 'wsr_sharpness' in info
-        assert 'wsr_spectral_sharpness' in info
-        assert 'wsr_directional_sharpness' in info
+        assert "wsr_sharpness" in info
+        assert "wsr_spectral_sharpness" in info
+        assert "wsr_directional_sharpness" in info
 
     def test_full_training_loop_smoke(self):
         """Smoke test: WSR in a full training loop (10 steps)."""
@@ -341,7 +339,7 @@ class TestWSRIntegration:
             loss_main.backward()
 
             # WSR
-            wsr_loss, wsr_info = wsr(Q.data, step=step * 100)
+            _wsr_loss, _wsr_info = wsr(Q.data, step=step * 100)
 
             optimizer.step()
 
@@ -361,11 +359,11 @@ class TestWSRIntegration:
 
     def test_device_consistency(self):
         """WSR should work on different devices."""
-        for device in [torch.device('cpu')]:
+        for device in [torch.device("cpu")]:
             wsr = WorkspaceSharpnessRegularization(embed_dim=64).to(device)
             Q = torch.randn(64, 8, device=device)
             Q, _ = torch.linalg.qr(Q)
-            loss, info = wsr(Q, step=1000)
+            loss, _info = wsr(Q, step=1000)
             assert loss.device == device
 
 
@@ -394,8 +392,8 @@ class TestWSRTheorems:
         Q, _ = torch.linalg.qr(Q)
         Q.grad = torch.zeros(64, 8)  # zero gradient = constant loss
 
-        loss, info = wsr(Q, step=1000)
-        assert info['wsr_sharpness'] < 1e-5
+        _loss, info = wsr(Q, step=1000)
+        assert info["wsr_sharpness"] < 1e-5
 
     def test_sharpness_scales_with_rho(self):
         """Sharpness should scale linearly with ρ (by definition)."""
@@ -410,8 +408,8 @@ class TestWSRTheorems:
         _, info_large = wsr_large(Q, step=1000)
 
         # Ratio should be approximately rho_large/rho_small = 10
-        if info_small['wsr_sharpness'] > 1e-8:
-            ratio = info_large['wsr_sharpness'] / info_small['wsr_sharpness']
+        if info_small["wsr_sharpness"] > 1e-8:
+            ratio = info_large["wsr_sharpness"] / info_small["wsr_sharpness"]
             assert 8 < ratio < 12, f"Sharpness ratio {ratio} != rho ratio 10"
 
     def test_sharpness_invariant_to_Q_rotation(self):
@@ -428,12 +426,12 @@ class TestWSRTheorems:
         # Set same gradient structure
         G = torch.randn(64, 8)
         Q.grad = G.clone()
-        Q_rotated_grad = G @ R  # rotate gradient too
+        G @ R  # rotate gradient too
         # Note: this is not exactly how gradients transform, so we just check
         # that both give finite non-negative losses
 
-        loss1, info1 = wsr(Q, step=1000)
-        loss2, info2 = wsr(Q_rotated, step=1000)
+        loss1, _info1 = wsr(Q, step=1000)
+        loss2, _info2 = wsr(Q_rotated, step=1000)
 
         assert loss1.item() >= 0
         assert loss2.item() >= 0

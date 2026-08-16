@@ -16,11 +16,9 @@
 # each layer to maintain predictive information, whereas MLM allows
 # layers to "forget" information that's not needed for reconstruction.
 
-import math
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Dict, Optional
+from torch import nn
 
 
 class LayerwiseProbe:
@@ -35,8 +33,9 @@ class LayerwiseProbe:
     (information distributed evenly) vs MLM (sharp peaks at specific layers).
     """
 
-    def __init__(self, embed_dim=768, num_classes=2, lr=1e-3,
-                 max_epochs=30, patience=5, device='cpu'):
+    def __init__(
+        self, embed_dim=768, num_classes=2, lr=1e-3, max_epochs=30, patience=5, device="cpu"
+    ):
         self.embed_dim = embed_dim
         self.num_classes = num_classes
         self.lr = lr
@@ -89,7 +88,7 @@ class LayerwiseProbe:
         return best_acc
 
     @torch.no_grad()
-    def probe_all_layers(self, layer_representations, labels, task_name='default'):
+    def probe_all_layers(self, layer_representations, labels, task_name="default"):
         """Probe each layer for task-specific information.
 
         Args:
@@ -118,17 +117,16 @@ class LayerwiseProbe:
             uniformity = 0.0
 
         return {
-            'task': task_name,
-            'per_layer_accuracy': accuracies,
-            'peak_layer': peak_layer,
-            'peak_accuracy': max(accuracies) if accuracies else 0.0,
-            'mean_accuracy': sum(accuracies) / len(accuracies) if accuracies else 0.0,
-            'layer_uniformity': max(min(uniformity, 1.0), 0.0),
-            'n_layers': len(accuracies),
+            "task": task_name,
+            "per_layer_accuracy": accuracies,
+            "peak_layer": peak_layer,
+            "peak_accuracy": max(accuracies) if accuracies else 0.0,
+            "mean_accuracy": sum(accuracies) / len(accuracies) if accuracies else 0.0,
+            "layer_uniformity": max(min(uniformity, 1.0), 0.0),
+            "n_layers": len(accuracies),
         }
 
-    def compare_layer_profiles(self, jepa_layers, baseline_layers, labels,
-                               task_name='default'):
+    def compare_layer_profiles(self, jepa_layers, baseline_layers, labels, task_name="default"):
         """Compare layer-wise profiles between JEPA and baseline.
 
         Args:
@@ -139,18 +137,19 @@ class LayerwiseProbe:
         Returns:
             dict with comparison
         """
-        jepa_result = self.probe_all_layers(jepa_layers, labels, f'{task_name}_jepa')
-        baseline_result = self.probe_all_layers(baseline_layers, labels, f'{task_name}_baseline')
+        jepa_result = self.probe_all_layers(jepa_layers, labels, f"{task_name}_jepa")
+        baseline_result = self.probe_all_layers(baseline_layers, labels, f"{task_name}_baseline")
 
         return {
-            'task': task_name,
-            'jepa_uniformity': jepa_result['layer_uniformity'],
-            'baseline_uniformity': baseline_result['layer_uniformity'],
-            'jepa_more_uniform': jepa_result['layer_uniformity'] > baseline_result['layer_uniformity'],
-            'jepa_peak_layer': jepa_result['peak_layer'],
-            'baseline_peak_layer': baseline_result['peak_layer'],
-            'jepa_peak_accuracy': jepa_result['peak_accuracy'],
-            'baseline_peak_accuracy': baseline_result['peak_accuracy'],
+            "task": task_name,
+            "jepa_uniformity": jepa_result["layer_uniformity"],
+            "baseline_uniformity": baseline_result["layer_uniformity"],
+            "jepa_more_uniform": jepa_result["layer_uniformity"]
+            > baseline_result["layer_uniformity"],
+            "jepa_peak_layer": jepa_result["peak_layer"],
+            "baseline_peak_layer": baseline_result["peak_layer"],
+            "jepa_peak_accuracy": jepa_result["peak_accuracy"],
+            "baseline_peak_accuracy": baseline_result["peak_accuracy"],
         }
 
 
@@ -177,6 +176,7 @@ class LayerwiseCKA:
             (L_jepa, L_baseline) CKA matrix
         """
         from src.models.collapse import CollapseDiagnostics
+
         diag = CollapseDiagnostics()
 
         L_j = len(jepa_layers)
@@ -209,6 +209,7 @@ class LayerwiseCKA:
             dict with per-layer CKA and mean
         """
         from src.models.collapse import CollapseDiagnostics
+
         diag = CollapseDiagnostics()
 
         adjacent_cka = []
@@ -220,10 +221,10 @@ class LayerwiseCKA:
             adjacent_cka.append(cka)
 
         return {
-            'per_layer_cka': adjacent_cka,
-            'mean_adjacent_cka': sum(adjacent_cka) / len(adjacent_cka) if adjacent_cka else 0.0,
-            'min_cka': min(adjacent_cka) if adjacent_cka else 0.0,
-            'redundant_layers': sum(1 for c in adjacent_cka if c > 0.95),
+            "per_layer_cka": adjacent_cka,
+            "mean_adjacent_cka": sum(adjacent_cka) / len(adjacent_cka) if adjacent_cka else 0.0,
+            "min_cka": min(adjacent_cka) if adjacent_cka else 0.0,
+            "redundant_layers": sum(1 for c in adjacent_cka if c > 0.95),
         }
 
 
@@ -251,11 +252,11 @@ class LayerwiseGeometry:
         per_layer = {}
         for i, reps in enumerate(layers):
             geom = RepresentationGeometry.compute_all(reps)
-            per_layer[f'layer_{i}'] = geom
+            per_layer[f"layer_{i}"] = geom
 
         # Aggregate: how much does geometry change across layers?
-        eff_dims = [per_layer[f'layer_{i}']['effective_dimension'] for i in range(len(layers))]
-        anisotropies = [per_layer[f'layer_{i}']['anisotropy'] for i in range(len(layers))]
+        eff_dims = [per_layer[f"layer_{i}"]["effective_dimension"] for i in range(len(layers))]
+        anisotropies = [per_layer[f"layer_{i}"]["anisotropy"] for i in range(len(layers))]
 
         # Coefficient of variation (lower = more uniform)
         if eff_dims and sum(eff_dims) > 0:
@@ -266,11 +267,11 @@ class LayerwiseGeometry:
             cv_eff_dim = 0.0
 
         return {
-            'per_layer': per_layer,
-            'effective_dims': eff_dims,
-            'anisotropies': anisotropies,
-            'cv_effective_dim': cv_eff_dim,  # Lower = more uniform
-            'n_layers': len(layers),
+            "per_layer": per_layer,
+            "effective_dims": eff_dims,
+            "anisotropies": anisotropies,
+            "cv_effective_dim": cv_eff_dim,  # Lower = more uniform
+            "n_layers": len(layers),
         }
 
     @staticmethod
@@ -283,11 +284,11 @@ class LayerwiseGeometry:
         baseline_geom = LayerwiseGeometry.compute(baseline_layers)
 
         return {
-            'jepa_cv_eff_dim': jepa_geom['cv_effective_dim'],
-            'baseline_cv_eff_dim': baseline_geom['cv_effective_dim'],
-            'jepa_more_uniform': jepa_geom['cv_effective_dim'] < baseline_geom['cv_effective_dim'],
-            'jepa_eff_dims': jepa_geom['effective_dims'],
-            'baseline_eff_dims': baseline_geom['effective_dims'],
+            "jepa_cv_eff_dim": jepa_geom["cv_effective_dim"],
+            "baseline_cv_eff_dim": baseline_geom["cv_effective_dim"],
+            "jepa_more_uniform": jepa_geom["cv_effective_dim"] < baseline_geom["cv_effective_dim"],
+            "jepa_eff_dims": jepa_geom["effective_dims"],
+            "baseline_eff_dims": baseline_geom["effective_dims"],
         }
 
 
@@ -302,8 +303,7 @@ class LayerRoutingAnalysis:
     """
 
     @staticmethod
-    def routing_score(layer_representations, task_labels_dict, embed_dim=768,
-                      device='cpu'):
+    def routing_score(layer_representations, task_labels_dict, embed_dim=768, device="cpu"):
         """Compute routing scores: how critical is each layer for each task.
 
         Uses leave-one-out: remove each layer (ablate) and measure
@@ -327,6 +327,7 @@ class LayerRoutingAnalysis:
         baseline_accs = {}
         for task_name, labels in task_labels_dict.items():
             from src.interp.layer_analysis import LayerwiseProbe
+
             probe = LayerwiseProbe(embed_dim=embed_dim, max_epochs=20, device=device)
             with torch.enable_grad():
                 acc = probe._train_linear_probe(combined.detach().float(), labels)
@@ -336,9 +337,12 @@ class LayerRoutingAnalysis:
         routing = torch.zeros(n_layers, n_tasks)
         for i in range(n_layers):
             # Sum all layers except i
-            loo_combined = sum(l for j, l in enumerate(layer_representations) if j != i) / max(n_layers - 1, 1)
+            loo_combined = sum(l for j, l in enumerate(layer_representations) if j != i) / max(
+                n_layers - 1, 1
+            )
             for t_idx, (task_name, labels) in enumerate(task_labels_dict.items()):
                 from src.interp.layer_analysis import LayerwiseProbe
+
                 probe = LayerwiseProbe(embed_dim=embed_dim, max_epochs=20, device=device)
                 with torch.enable_grad():
                     acc = probe._train_linear_probe(loo_combined.detach().float(), labels)
@@ -346,8 +350,8 @@ class LayerRoutingAnalysis:
                 routing[i, t_idx] = baseline_accs[task_name] - acc
 
         return {
-            'routing_matrix': routing,
-            'task_names': task_names,
-            'baseline_accs': baseline_accs,
-            'specialization': routing.max(dim=1).values.mean().item(),  # Mean max routing per layer
+            "routing_matrix": routing,
+            "task_names": task_names,
+            "baseline_accs": baseline_accs,
+            "specialization": routing.max(dim=1).values.mean().item(),  # Mean max routing per layer
         }

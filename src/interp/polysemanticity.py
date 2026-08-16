@@ -18,8 +18,8 @@
 # 3. Feature Deduplication Score: from SAE feature overlap
 
 import math
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -38,8 +38,9 @@ class PolysemanticityIndex:
     Mean PSI across dimensions = overall polysemanticity score.
     """
 
-    def __init__(self, n_clusters_range=(2, 5), n_top_activations=100,
-                 n_dimensions_sample=None, device='cpu'):
+    def __init__(
+        self, n_clusters_range=(2, 5), n_top_activations=100, n_dimensions_sample=None, device="cpu"
+    ):
         """
         Args:
             n_clusters_range: range of cluster counts to test
@@ -64,14 +65,14 @@ class PolysemanticityIndex:
             dict with per-dimension PSI, mean PSI, fraction_monosemantic
         """
         try:
-            N, D = representations.shape
+            _N, D = representations.shape
             representations = representations.to(self.device)
             if labels is not None:
                 labels = labels.to(self.device)
 
             # Subsample dimensions for efficiency
             if self.n_dimensions_sample and D > self.n_dimensions_sample:
-                dim_idx = torch.randperm(D)[:self.n_dimensions_sample]
+                dim_idx = torch.randperm(D)[: self.n_dimensions_sample]
             else:
                 dim_idx = torch.arange(D)
 
@@ -86,19 +87,19 @@ class PolysemanticityIndex:
             frac_monosemantic = (psi_tensor < 1.5).float().mean().item()
 
             return {
-                'mean_psi': mean_psi,
-                'frac_monosemantic': frac_monosemantic,
-                'per_dim_psi': psi_scores,
-                'max_psi': psi_tensor.max().item(),
-                'min_psi': psi_tensor.min().item(),
+                "mean_psi": mean_psi,
+                "frac_monosemantic": frac_monosemantic,
+                "per_dim_psi": psi_scores,
+                "max_psi": psi_tensor.max().item(),
+                "min_psi": psi_tensor.min().item(),
             }
         except Exception:
             return {
-                'mean_psi': float('inf'),
-                'frac_monosemantic': 0.0,
-                'per_dim_psi': [],
-                'max_psi': float('inf'),
-                'min_psi': 0.0,
+                "mean_psi": float("inf"),
+                "frac_monosemantic": 0.0,
+                "per_dim_psi": [],
+                "max_psi": float("inf"),
+                "min_psi": 0.0,
             }
 
     def _compute_dim_psi(self, representations, dim_idx, labels=None):
@@ -146,7 +147,7 @@ class PolysemanticityIndex:
         Uses k-means-style clustering and measures inter vs intra distance.
         """
         try:
-            N, D = points.shape
+            N, _D = points.shape
             if N < k * 3:
                 return 0.0
 
@@ -298,21 +299,21 @@ class SuperpositionIndex:
             feature_density = n_active / out_dim
 
             return {
-                'interference_ratio': interference_ratio,
-                'effective_rank': eff_rank,
-                'superposition_ratio': superposition_ratio,
-                'feature_density': feature_density,
-                'n_active_features': n_active,
-                'mean_feature_norm': mean_diag ** 0.5,
+                "interference_ratio": interference_ratio,
+                "effective_rank": eff_rank,
+                "superposition_ratio": superposition_ratio,
+                "feature_density": feature_density,
+                "n_active_features": n_active,
+                "mean_feature_norm": mean_diag**0.5,
             }
         except Exception:
             return {
-                'interference_ratio': float('inf'),
-                'effective_rank': 0.0,
-                'superposition_ratio': 0.0,
-                'feature_density': 0.0,
-                'n_active_features': 0,
-                'mean_feature_norm': 0.0,
+                "interference_ratio": float("inf"),
+                "effective_rank": 0.0,
+                "superposition_ratio": 0.0,
+                "feature_density": 0.0,
+                "n_active_features": 0,
+                "mean_feature_norm": 0.0,
             }
 
 
@@ -364,19 +365,19 @@ class FeatureDeduplicationScore:
             dedup_b = unique_a_matches / sae_features_b.size(0)
 
             return {
-                'mean_cosine_a_to_b': best_match_a.mean().item(),
-                'mean_cosine_b_to_a': best_match_b.mean().item(),
-                'dedup_a': dedup_a,  # Fraction of A features with unique B matches
-                'dedup_b': dedup_b,  # Fraction of B features with unique A matches
-                'n_unique_b_matches': unique_b_matches,
-                'n_unique_a_matches': unique_a_matches,
+                "mean_cosine_a_to_b": best_match_a.mean().item(),
+                "mean_cosine_b_to_a": best_match_b.mean().item(),
+                "dedup_a": dedup_a,  # Fraction of A features with unique B matches
+                "dedup_b": dedup_b,  # Fraction of B features with unique A matches
+                "n_unique_b_matches": unique_b_matches,
+                "n_unique_a_matches": unique_a_matches,
             }
         except Exception:
             return {
-                'mean_cosine_a_to_b': 0.0,
-                'mean_cosine_b_to_a': 0.0,
-                'dedup_a': 0.0,
-                'dedup_b': 0.0,
-                'n_unique_b_matches': 0,
-                'n_unique_a_matches': 0,
+                "mean_cosine_a_to_b": 0.0,
+                "mean_cosine_b_to_a": 0.0,
+                "dedup_a": 0.0,
+                "dedup_b": 0.0,
+                "n_unique_b_matches": 0,
+                "n_unique_a_matches": 0,
             }

@@ -1,22 +1,22 @@
 # Copyright 2026 Text-Span JEPA Authors
 # Licensed under the Apache License, Version 2.0
 
-from .jepa import TextSpanJEPA, TextSpanJEPAConfig
-from .encoder import TextSpanJEPLEncoder
-from .predictor import TextSpanJEPApredictor
-from .decoder import TiedTokenDecoder
+from .cgn import ContextualGatingNetwork
+from .cmc import CrossMaskConsistency
 from .collapse import (
-    VarianceRegularization,
+    CollapseDiagnostics,
     CovarianceRegularization,
     TargetCentering,
-    CollapseDiagnostics,
+    VarianceRegularization,
 )
-from .cgn import ContextualGatingNetwork
-from .spc import SpectralPredictiveCoding
-from .wsd import WorkspaceSyncDrift
-from .cmc import CrossMaskConsistency
+from .decoder import TiedTokenDecoder
+from .encoder import TextSpanJEPLEncoder
 from .gac import GradientAllocatedCapacity
-from .sta import SpectralTransportAlignment
+from .jepa import TextSpanJEPA, TextSpanJEPAConfig
+from .predictor import TextSpanJEPApredictor
 from .puc import PredictionUncertaintyCalibration
 from .rdc import RepresentationDriftCompensation
+from .spc import SpectralPredictiveCoding
+from .sta import SpectralTransportAlignment
+from .wsd import WorkspaceSyncDrift
 from .wsr import WorkspaceSharpnessRegularization

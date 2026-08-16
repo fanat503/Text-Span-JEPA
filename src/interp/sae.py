@@ -6,10 +6,9 @@
 # TopK activation from Gao et al. (2024) "Scaling and Evaluating Sparse Autoencoders"
 # Dead feature resampling from Anthropic's dictionary learning
 
-import math
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class SparseAutoencoder(nn.Module):
@@ -27,8 +26,14 @@ class SparseAutoencoder(nn.Module):
     features. Prevents feature death during training.
     """
 
-    def __init__(self, input_dim=768, latent_dim=4096, k=64,
-                 dead_feature_threshold=1e-6, resample_interval=1000):
+    def __init__(
+        self,
+        input_dim=768,
+        latent_dim=4096,
+        k=64,
+        dead_feature_threshold=1e-6,
+        resample_interval=1000,
+    ):
         super().__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -42,8 +47,8 @@ class SparseAutoencoder(nn.Module):
         self.decoder = nn.Linear(latent_dim, input_dim, bias=True)
 
         # Track feature activation counts for dead feature resampling
-        self.register_buffer('feature_act_count', torch.zeros(latent_dim))
-        self.register_buffer('total_samples', torch.tensor(0, dtype=torch.long))
+        self.register_buffer("feature_act_count", torch.zeros(latent_dim))
+        self.register_buffer("total_samples", torch.tensor(0, dtype=torch.long))
         self._steps_since_resample = 0
 
         # Initialize: decoder columns on unit sphere (Anthropic pattern)
@@ -94,11 +99,11 @@ class SparseAutoencoder(nn.Module):
             self._track_activations(latent)
 
         info = {
-            'recons_loss': recons_loss.item(),
-            'sparsity': sparsity.item(),
-            'frac_active': (latent > 0).float().mean().item(),
-            'topk_idx': topk_idx,
-            'topk_vals': topk_vals,
+            "recons_loss": recons_loss.item(),
+            "sparsity": sparsity.item(),
+            "frac_active": (latent > 0).float().mean().item(),
+            "topk_idx": topk_idx,
+            "topk_vals": topk_vals,
         }
 
         return recons, latent, loss, info
@@ -154,10 +159,9 @@ class SparseAutoencoder(nn.Module):
                 src = alive_idx[torch.randint(len(alive_idx), (1,)).item()]
                 # Copy encoder row with small perturbation
                 # encoder.weight shape: (latent_dim, input_dim), rows = features
-                self.encoder.weight.data[d_idx] = (
-                    self.encoder.weight.data[src.item()]
-                    + 0.02 * torch.randn_like(self.encoder.weight.data[src.item()])
-                )
+                self.encoder.weight.data[d_idx] = self.encoder.weight.data[
+                    src.item()
+                ] + 0.02 * torch.randn_like(self.encoder.weight.data[src.item()])
                 self.encoder.bias.data[d_idx] = 0.0
                 # Reset decoder column (decoder shape: latent_dim, input_dim)
                 # Column d_idx of decoder corresponds to feature d_idx
@@ -176,15 +180,11 @@ class SAETrainer:
     and metric logging (MSE, L0, explained variance).
     """
 
-    def __init__(self, sae, lr=1e-3, weight_decay=1e-5, device='cpu'):
+    def __init__(self, sae, lr=1e-3, weight_decay=1e-5, device="cpu"):
         self.sae = sae.to(device)
         self.device = device
-        self.optimizer = torch.optim.Adam(
-            sae.parameters(), lr=lr, weight_decay=weight_decay
-        )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=100000
-        )
+        self.optimizer = torch.optim.Adam(sae.parameters(), lr=lr, weight_decay=weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=100000)
         self.step_count = 0
 
     def train_step(self, x):
@@ -211,16 +211,14 @@ class SAETrainer:
 
         # Post-step: normalize decoder rows to unit norm
         with torch.no_grad():
-            self.sae.decoder.weight.data = F.normalize(
-                self.sae.decoder.weight.data, dim=1
-            )
+            self.sae.decoder.weight.data = F.normalize(self.sae.decoder.weight.data, dim=1)
 
         self.step_count += 1
 
-        info['step'] = self.step_count
-        info['lr'] = self.scheduler.get_last_lr()[0]
-        info['l0'] = (latent > 0).sum(dim=-1).float().mean().item()
-        info['explained_variance'] = self._explained_variance(x, recons)
+        info["step"] = self.step_count
+        info["lr"] = self.scheduler.get_last_lr()[0]
+        info["l0"] = (latent > 0).sum(dim=-1).float().mean().item()
+        info["explained_variance"] = self._explained_variance(x, recons)
 
         return info
 
@@ -249,35 +247,42 @@ class SAETrainer:
         for batch in dataloader:
             if n_batches >= max_batches:
                 break
-            x = batch.to(self.device) if isinstance(batch, torch.Tensor) else batch[0].to(self.device)
+            x = (
+                batch.to(self.device)
+                if isinstance(batch, torch.Tensor)
+                else batch[0].to(self.device)
+            )
             recons, latent, _, info = self.sae(x)
-            total_recons += info['recons_loss']
+            total_recons += info["recons_loss"]
             total_l0 += (latent > 0).sum(dim=-1).float().mean().item()
             total_ev += self._explained_variance(x, recons)
             n_batches += 1
 
         if n_batches == 0:
-            return {'recons_loss': float('inf'), 'l0': 0, 'explained_variance': 0}
+            return {"recons_loss": float("inf"), "l0": 0, "explained_variance": 0}
 
         return {
-            'recons_loss': total_recons / n_batches,
-            'l0': total_l0 / n_batches,
-            'explained_variance': total_ev / n_batches,
+            "recons_loss": total_recons / n_batches,
+            "l0": total_l0 / n_batches,
+            "explained_variance": total_ev / n_batches,
         }
 
     def save(self, path):
         """Save SAE checkpoint."""
-        torch.save({
-            'sae_state': self.sae.state_dict(),
-            'optimizer_state': self.optimizer.state_dict(),
-            'scheduler_state': self.scheduler.state_dict(),
-            'step_count': self.step_count,
-        }, path)
+        torch.save(
+            {
+                "sae_state": self.sae.state_dict(),
+                "optimizer_state": self.optimizer.state_dict(),
+                "scheduler_state": self.scheduler.state_dict(),
+                "step_count": self.step_count,
+            },
+            path,
+        )
 
     def load(self, path):
         """Load SAE checkpoint."""
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
-        self.sae.load_state_dict(ckpt['sae_state'])
-        self.optimizer.load_state_dict(ckpt['optimizer_state'])
-        self.scheduler.load_state_dict(ckpt['scheduler_state'])
-        self.step_count = ckpt['step_count']
+        self.sae.load_state_dict(ckpt["sae_state"])
+        self.optimizer.load_state_dict(ckpt["optimizer_state"])
+        self.scheduler.load_state_dict(ckpt["scheduler_state"])
+        self.step_count = ckpt["step_count"]

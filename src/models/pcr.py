@@ -142,10 +142,12 @@
 #      (default: geometrically decreasing from D//4)
 #    - refine_mlp_hidden: hidden dim for refinement MLPs
 
+from __future__ import annotations
+
 import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 
 
 class RefinementBlock(nn.Module):
@@ -159,7 +161,7 @@ class RefinementBlock(nn.Module):
         hidden_dim: hidden dimension of the MLP.
     """
 
-    def __init__(self, dim: int, hidden_dim: int = None):
+    def __init__(self, dim: int, hidden_dim: int | None = None):
         super().__init__()
         hidden_dim = hidden_dim or max(dim * 2, 64)
         self.net = nn.Sequential(
@@ -197,8 +199,9 @@ class PredictiveCascadeRefinement(nn.Module):
         init: 'identity' (Q = I) or 'random' (Q = random orthogonal).
     """
 
-    def __init__(self, embed_dim=768, n_levels=3, level_dims=None,
-                 refine_mlp_hidden=None, init='identity'):
+    def __init__(
+        self, embed_dim=768, n_levels=3, level_dims=None, refine_mlp_hidden=None, init="identity"
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_levels = n_levels
@@ -206,15 +209,15 @@ class PredictiveCascadeRefinement(nn.Module):
         # Compute level dimensions if not provided
         if level_dims is not None:
             self.level_dims = list(level_dims)
-            assert len(self.level_dims) == n_levels, (
-                f"len(level_dims)={len(self.level_dims)} must equal n_levels={n_levels}"
-            )
+            assert (
+                len(self.level_dims) == n_levels
+            ), f"len(level_dims)={len(self.level_dims)} must equal n_levels={n_levels}"
         else:
             # Geometrically decreasing: d_l = D // (4 * 2^l)
             self.level_dims = []
             remaining = embed_dim
             for l in range(n_levels):
-                d = max(embed_dim // (4 * (2 ** l)), 8)
+                d = max(embed_dim // (4 * (2**l)), 8)
                 d = min(d, remaining)
                 self.level_dims.append(d)
                 remaining -= d
@@ -225,9 +228,9 @@ class PredictiveCascadeRefinement(nn.Module):
             n_levels = self.n_levels
 
         total_dim = sum(self.level_dims)
-        assert total_dim <= embed_dim, (
-            f"Sum of level_dims ({total_dim}) must be ≤ embed_dim ({embed_dim})"
-        )
+        assert (
+            total_dim <= embed_dim
+        ), f"Sum of level_dims ({total_dim}) must be ≤ embed_dim ({embed_dim})"
 
         # Learned orthogonal projection matrix Q ∈ R^{D × total_dim}
         # Columns of Q define all subspaces: P_l = Q[:, offset_l:offset_l+d_l]
@@ -235,21 +238,23 @@ class PredictiveCascadeRefinement(nn.Module):
         self._init_Q(init)
 
         # Precompute offsets for each level
-        self.register_buffer('level_offsets',
-                             torch.cumsum(torch.tensor([0] + self.level_dims[:-1]), 0))
+        self.register_buffer(
+            "level_offsets", torch.cumsum(torch.tensor([0] + self.level_dims[:-1]), 0)
+        )
 
         # Refinement blocks — one per level
         refine_hidden = refine_mlp_hidden or (2 * max(self.level_dims))
-        self.refine_blocks = nn.ModuleList([
-            RefinementBlock(dim=d, hidden_dim=refine_hidden)
-            for d in self.level_dims
-        ])
+        self.refine_blocks = nn.ModuleList(
+            [RefinementBlock(dim=d, hidden_dim=refine_hidden) for d in self.level_dims]
+        )
 
         # Gating scalar per level — learned importance weight
-        self.level_gates = nn.ParameterList([
-            nn.Parameter(torch.tensor(0.0))  # starts at 0 → near-zero refinement
-            for _ in range(n_levels)
-        ])
+        self.level_gates = nn.ParameterList(
+            [
+                nn.Parameter(torch.tensor(0.0))  # starts at 0 → near-zero refinement
+                for _ in range(n_levels)
+            ]
+        )
 
         # Warmup: don't refine for the first few steps (let base predictor learn)
         self.warmup_steps = 1000
@@ -258,10 +263,10 @@ class PredictiveCascadeRefinement(nn.Module):
         """Initialize projection matrix on the Stiefel manifold."""
         total_dim = sum(self.level_dims)
         with torch.no_grad():
-            if mode == 'identity':
+            if mode == "identity":
                 self.workspace_Q.zero_()
                 self.workspace_Q[:total_dim, :total_dim] = torch.eye(total_dim)
-            elif mode == 'random':
+            elif mode == "random":
                 M = torch.randn(self.embed_dim, total_dim)
                 Q, _ = torch.linalg.qr(M)
                 self.workspace_Q.copy_(Q[:, :total_dim])
@@ -277,7 +282,7 @@ class PredictiveCascadeRefinement(nn.Module):
         Q = self.workspace_Q.data
         k = Q.shape[1]
         try:
-            U, S, Vh = torch.linalg.svd(Q, full_matrices=False)
+            U, _S, Vh = torch.linalg.svd(Q, full_matrices=False)
             Q.copy_(U[:, :k] @ Vh[:k, :])
         except Exception:
             try:
@@ -294,7 +299,7 @@ class PredictiveCascadeRefinement(nn.Module):
         """
         offset = self.level_offsets[level].item()
         dim = self.level_dims[level]
-        return self.workspace_Q[:, offset:offset + dim]
+        return self.workspace_Q[:, offset : offset + dim]
 
     def forward(self, z_pred, z_target, step=0):
         """Apply cascade refinement to predictions.
@@ -350,16 +355,20 @@ class PredictiveCascadeRefinement(nn.Module):
                 correction_norm = (gate * correction).norm().item()
                 total_refinement_norm += correction_norm
                 # Subspace utilization: how much of the residual is in this subspace
-                r_energy = (r_projected ** 2).sum().item()
-                total_r_energy = (residual ** 2).sum().item() + 1e-10
+                r_energy = (r_projected**2).sum().item()
+                total_r_energy = (residual**2).sum().item() + 1e-10
                 subspace_fraction = r_energy / (total_r_energy + r_energy)
 
-                level_info.append({
-                    f'pcr_level_{l}_correction_norm': correction_norm,
-                    f'pcr_level_{l}_gate': gate.item() if isinstance(gate, torch.Tensor) else gate,
-                    f'pcr_level_{l}_subspace_fraction': subspace_fraction,
-                    f'pcr_level_{l}_dim': self.level_dims[l],
-                })
+                level_info.append(
+                    {
+                        f"pcr_level_{l}_correction_norm": correction_norm,
+                        f"pcr_level_{l}_gate": (
+                            gate.item() if isinstance(gate, torch.Tensor) else gate
+                        ),
+                        f"pcr_level_{l}_subspace_fraction": subspace_fraction,
+                        f"pcr_level_{l}_dim": self.level_dims[l],
+                    }
+                )
 
         # Reshape back
         z_refined = z_current.reshape(original_shape)
@@ -382,13 +391,13 @@ class PredictiveCascadeRefinement(nn.Module):
             ortho_score = 1.0 - off_diag.abs().mean().clamp(0, 1).item()
 
         info = {
-            'pcr_improvement': max(improvement, 0.0),
-            'pcr_total_refinement_norm': total_refinement_norm,
-            'pcr_initial_residual': initial_residual,
-            'pcr_final_residual': final_residual,
-            'pcr_ortho_score': ortho_score,
-            'pcr_n_levels': self.n_levels,
-            'pcr_warmup_factor': warmup_factor,
+            "pcr_improvement": max(improvement, 0.0),
+            "pcr_total_refinement_norm": total_refinement_norm,
+            "pcr_initial_residual": initial_residual,
+            "pcr_final_residual": final_residual,
+            "pcr_ortho_score": ortho_score,
+            "pcr_n_levels": self.n_levels,
+            "pcr_warmup_factor": warmup_factor,
         }
         # Merge level-specific info
         for d in level_info:
@@ -417,18 +426,18 @@ class PredictiveCascadeRefinement(nn.Module):
 
         N = z_pred_flat.size(0)
         if N <= 1:
-            return 0.0, {'method': 'insufficient_data'}
+            return 0.0, {"method": "insufficient_data"}
 
         # Estimate noise variance from residuals
         residual = z_target_flat - z_pred_flat
-        sigma2_n = (residual ** 2).mean().item() + 1e-6
+        sigma2_n = (residual**2).mean().item() + 1e-6
 
         total_bound = 0.0
         level_bounds = []
 
         for l in range(self.n_levels):
             P_l = self._get_subspace_proj(l).detach()  # (D, d_l)
-            d_l = self.level_dims[l]
+            self.level_dims[l]
 
             # Project residual covariance into subspace
             r_proj = residual @ P_l  # (N, d_l)
@@ -448,14 +457,16 @@ class PredictiveCascadeRefinement(nn.Module):
             level_bounds.append(level_bound)
 
         bound_info = {
-            'method': 'cascade_capacity',
-            'total_bound_nats': total_bound,
-            'total_bound_bits': total_bound / math.log(2),
-            'per_level_bounds': level_bounds,
-            'sigma2_n': sigma2_n,
+            "method": "cascade_capacity",
+            "total_bound_nats": total_bound,
+            "total_bound_bits": total_bound / math.log(2),
+            "per_level_bounds": level_bounds,
+            "sigma2_n": sigma2_n,
         }
         return total_bound, bound_info
 
     def extra_repr(self):
-        return (f'embed_dim={self.embed_dim}, n_levels={self.n_levels}, '
-                f'level_dims={self.level_dims}')
+        return (
+            f"embed_dim={self.embed_dim}, n_levels={self.n_levels}, "
+            f"level_dims={self.level_dims}"
+        )

@@ -25,160 +25,204 @@
 #   probe_generalization.py — ProbeGeneralizationTest, ProbeSelectivityTest,
 #                              StructuralProbeGeneralization
 
-from .sae import SparseAutoencoder, SAETrainer
-from .structural_probe import StructuralProbe
+from .ablation import (
+    ABLATION_CONFIGS,
+    AblatedModel,
+    AblationConfig,
+    AblationStudy,
+)
 from .causal_intervention import (
+    CausalIntervention,
+    activation_patching,
     direction_ablation,
     feature_steering,
-    activation_patching,
     intervention_predictability_score,
-    CausalIntervention,
-)
-from .disentanglement import (
-    DCIMetrics,
-    SAPScore,
-    MIGScore,
-    ModularityScore,
-    compute_all_disentanglement_metrics,
-)
-from .compare import RepresentationComparator, extract_linguistic_features
-from .probing_complexity import ProbingComplexityCurve, LinguisticProbeTasks
-from .polysemanticity import (
-    PolysemanticityIndex,
-    SuperpositionIndex,
-    FeatureDeduplicationScore,
 )
 from .causal_scrubbing import (
     CausalScrubber,
     FeatureHypothesis,
     InterventionPredictabilityScorer,
 )
-from .representation_geometry import (
-    RepresentationGeometry,
-    GeometryDegradationTest,
+from .compare import RepresentationComparator, extract_linguistic_features
+from .disentanglement import (
+    DCIMetrics,
+    MIGScore,
+    ModularityScore,
+    SAPScore,
+    compute_all_disentanglement_metrics,
 )
 from .feature_composition import (
     FeatureCompositionScore,
     FeatureInterferenceScore,
 )
-from .statistical_tests import (
-    BootstrapCI,
-    PairedPermutationTest,
-    MultipleComparisonCorrection,
-    EffectSize,
-    BayesianComparison,
-    MetricComparisonReport,
+from .ground_truth import (
+    GroundTruthValidation,
+    SyntheticStructuredModel,
 )
 from .information_theory import (
-    MINEEstimator,
-    InfoNCEEstimator,
     ConditionalMIEstimator,
-    RepresentationCompression,
+    InfoNCEEstimator,
     InformationPlane,
+    MINEEstimator,
+    RepresentationCompression,
 )
+from .interpretability_index import InterpretabilityIndex
 from .layer_analysis import (
-    LayerwiseProbe,
+    LayerRoutingAnalysis,
     LayerwiseCKA,
     LayerwiseGeometry,
-    LayerRoutingAnalysis,
+    LayerwiseProbe,
 )
-from .stability import (
-    TrainingStability,
-    LossStability,
-    EarlyStoppingAdvantage,
-    CheckpointConsistency,
+from .polysemanticity import (
+    FeatureDeduplicationScore,
+    PolysemanticityIndex,
+    SuperpositionIndex,
 )
 from .probe_generalization import (
     ProbeGeneralizationTest,
     ProbeSelectivityTest,
     StructuralProbeGeneralization,
 )
-from .visualization import (
-    radar_chart,
-    layer_heatmap,
-    bar_chart_with_errors,
-    probing_complexity_curve,
-    convergence_plot,
-    ablation_comparison_chart,
-    scaling_law_plot,
-    robustness_curve,
-    information_plane,
+from .probing_complexity import LinguisticProbeTasks, ProbingComplexityCurve
+from .representation_geometry import (
+    GeometryDegradationTest,
+    RepresentationGeometry,
 )
-from .ablation import (
-    AblationConfig,
-    ABLATION_CONFIGS,
-    AblatedModel,
-    AblationStudy,
-)
-from .scaling import (
-    ScalingAnalysis,
-    ComputeOptimalScale,
-    InterpretabilityEfficiency,
-)
-from .interpretability_index import InterpretabilityIndex
 from .robustness import (
     RepresentationRobustness,
     RobustnessBattery,
-    token_dropout,
-    token_substitution,
-    token_permutation,
     span_corruption,
+    token_dropout,
+    token_permutation,
+    token_substitution,
 )
-from .ground_truth import (
-    SyntheticStructuredModel,
-    GroundTruthValidation,
+from .sae import SAETrainer, SparseAutoencoder
+from .scaling import (
+    ComputeOptimalScale,
+    InterpretabilityEfficiency,
+    ScalingAnalysis,
+)
+from .stability import (
+    CheckpointConsistency,
+    EarlyStoppingAdvantage,
+    LossStability,
+    TrainingStability,
+)
+from .statistical_tests import (
+    BayesianComparison,
+    BootstrapCI,
+    EffectSize,
+    MetricComparisonReport,
+    MultipleComparisonCorrection,
+    PairedPermutationTest,
+)
+from .structural_probe import StructuralProbe
+from .visualization import (
+    ablation_comparison_chart,
+    bar_chart_with_errors,
+    convergence_plot,
+    information_plane,
+    layer_heatmap,
+    probing_complexity_curve,
+    radar_chart,
+    robustness_curve,
+    scaling_law_plot,
 )
 
 __all__ = [
-    # SAE
-    'SparseAutoencoder', 'SAETrainer',
-    # Structural
-    'StructuralProbe',
-    # Causal intervention
-    'direction_ablation', 'feature_steering', 'activation_patching',
-    'intervention_predictability_score', 'CausalIntervention',
-    # Disentanglement
-    'DCIMetrics', 'SAPScore', 'MIGScore', 'ModularityScore',
-    'compute_all_disentanglement_metrics',
-    # Comparator
-    'RepresentationComparator', 'extract_linguistic_features',
-    # Probing complexity
-    'ProbingComplexityCurve', 'LinguisticProbeTasks',
-    # Polysemanticity
-    'PolysemanticityIndex', 'SuperpositionIndex', 'FeatureDeduplicationScore',
-    # Causal scrubbing
-    'CausalScrubber', 'FeatureHypothesis', 'InterventionPredictabilityScorer',
-    # Geometry
-    'RepresentationGeometry', 'GeometryDegradationTest',
-    # Composition
-    'FeatureCompositionScore', 'FeatureInterferenceScore',
-    # Statistical tests
-    'BootstrapCI', 'PairedPermutationTest', 'MultipleComparisonCorrection',
-    'EffectSize', 'BayesianComparison', 'MetricComparisonReport',
-    # Information theory
-    'MINEEstimator', 'InfoNCEEstimator', 'ConditionalMIEstimator',
-    'RepresentationCompression', 'InformationPlane',
-    # Layer analysis
-    'LayerwiseProbe', 'LayerwiseCKA', 'LayerwiseGeometry', 'LayerRoutingAnalysis',
-    # Stability
-    'TrainingStability', 'LossStability', 'EarlyStoppingAdvantage',
-    'CheckpointConsistency',
-    # Probe generalization
-    'ProbeGeneralizationTest', 'ProbeSelectivityTest', 'StructuralProbeGeneralization',
-    # Visualization
-    'radar_chart', 'layer_heatmap', 'bar_chart_with_errors',
-    'probing_complexity_curve', 'convergence_plot',
-    'ablation_comparison_chart', 'scaling_law_plot',
-    'robustness_curve', 'information_plane',
+    "ABLATION_CONFIGS",
+    "AblatedModel",
     # Ablation
-    'AblationConfig', 'ABLATION_CONFIGS', 'AblatedModel', 'AblationStudy',
-    # Scaling
-    'ScalingAnalysis', 'ComputeOptimalScale', 'InterpretabilityEfficiency',
+    "AblationConfig",
+    "AblationStudy",
+    "BayesianComparison",
+    # Statistical tests
+    "BootstrapCI",
+    "CausalIntervention",
+    # Causal scrubbing
+    "CausalScrubber",
+    "CheckpointConsistency",
+    "ComputeOptimalScale",
+    "ConditionalMIEstimator",
+    # Disentanglement
+    "DCIMetrics",
+    "EarlyStoppingAdvantage",
+    "EffectSize",
+    # Composition
+    "FeatureCompositionScore",
+    "FeatureDeduplicationScore",
+    "FeatureHypothesis",
+    "FeatureInterferenceScore",
+    "GeometryDegradationTest",
+    "GroundTruthValidation",
+    "InfoNCEEstimator",
+    "InformationPlane",
+    "InterpretabilityEfficiency",
     # Interpretability Index
-    'InterpretabilityIndex',
+    "InterpretabilityIndex",
+    "InterventionPredictabilityScorer",
+    "LayerRoutingAnalysis",
+    "LayerwiseCKA",
+    "LayerwiseGeometry",
+    # Layer analysis
+    "LayerwiseProbe",
+    "LinguisticProbeTasks",
+    "LossStability",
+    "MIGScore",
+    # Information theory
+    "MINEEstimator",
+    "MetricComparisonReport",
+    "ModularityScore",
+    "MultipleComparisonCorrection",
+    "PairedPermutationTest",
+    # Polysemanticity
+    "PolysemanticityIndex",
+    # Probe generalization
+    "ProbeGeneralizationTest",
+    "ProbeSelectivityTest",
+    # Probing complexity
+    "ProbingComplexityCurve",
+    # Comparator
+    "RepresentationComparator",
+    "RepresentationCompression",
+    # Geometry
+    "RepresentationGeometry",
     # Robustness
-    'RepresentationRobustness', 'RobustnessBattery',
-    'token_dropout', 'token_substitution', 'token_permutation', 'span_corruption',
+    "RepresentationRobustness",
+    "RobustnessBattery",
+    "SAETrainer",
+    "SAPScore",
+    # Scaling
+    "ScalingAnalysis",
+    # SAE
+    "SparseAutoencoder",
+    # Structural
+    "StructuralProbe",
+    "StructuralProbeGeneralization",
+    "SuperpositionIndex",
     # Ground truth
-    'SyntheticStructuredModel', 'GroundTruthValidation',
+    "SyntheticStructuredModel",
+    # Stability
+    "TrainingStability",
+    "ablation_comparison_chart",
+    "activation_patching",
+    "bar_chart_with_errors",
+    "compute_all_disentanglement_metrics",
+    "convergence_plot",
+    # Causal intervention
+    "direction_ablation",
+    "extract_linguistic_features",
+    "feature_steering",
+    "information_plane",
+    "intervention_predictability_score",
+    "layer_heatmap",
+    "probing_complexity_curve",
+    # Visualization
+    "radar_chart",
+    "robustness_curve",
+    "scaling_law_plot",
+    "span_corruption",
+    "token_dropout",
+    "token_permutation",
+    "token_substitution",
 ]
