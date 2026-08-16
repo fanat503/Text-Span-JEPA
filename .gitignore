@@ -44,8 +44,8 @@ lightning_logs/
 # Jupyter
 .ipynb_checkpoints/
 
-# Patch files (generated, not source code)
-*.patch
+# Patch files (outside repo, not source code)
+# patches/ directory IS tracked — it contains versioned diffs
 
 # Agent/analysis files (not source code)
 COMMIT_INSTRUCTIONS_*.md
