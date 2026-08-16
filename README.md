@@ -1,9 +1,9 @@
 text-span-jepa
 ==============
 
-latent prediction at masked spans + future positions.
+latent prediction at masked spans + future positions
 
-not token reconstruction. predict in latent space - that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to look on token details or noise.
+predict in latent space - that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to look on token details or noise.
 
 
 setup
