@@ -3,9 +3,9 @@ text-span-jepa
 
 latent prediction at masked spans + future positions.
 
-not token reconstruction. not contrastive. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on low-level token details.
+not token reconstruction. predict in latent space — that's the whole point of JEPA (LeCun 2022). the encoder learns what matters because it never has to waste capacity on useless details.
 
-the twist for text: span-level masking (not random tokens) forces the model to use broader context. future latent prediction (where h[t+d] is going) gives it a reason to encode directionality. these two things together are what make this different from I-JEPA (which does images) and data2vec (which does token-level).
+something like twist: span-level masking forces the model to use broader context. future latent prediction gives it a reason to encode directionality.
 
 ---
 
@@ -26,7 +26,7 @@ training
 python -m src.train --fname configs/small-100m.yaml
 ```
 
-everything in the YAML, nothing on the CLI. same convention as I-JEPA.
+everything in the YAML, nothing on the CLI.
 
 resume: set `meta.load_checkpoint: true` in the config. picks up from `checkpoint-latest.pth.tar`.
 
@@ -35,109 +35,16 @@ configs: `debug.yaml` (sanity), `small-100m.yaml` (~90M, 16GB), `base-200m.yaml`
 architecture
 ------------
 
-three components. nothing else.
+encoder — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled tau.
 
-**encoder** — bidirectional transformer. same architecture for online and target. target encoder is EMA copy with scheduled τ = 0.996 → 0.9999 (cosine schedule from C-JEPA best practices, constant τ doesn't work, I-JEPA showed this and we confirmed it).
+predictor — narrow transformer. takes encoder output, do what it think matters and predicts target latent. two modes:
+- span: mask contiguous blocks, predict their latents
+- future: predict future positions from current with learned offset queries. it's a simpler task.
 
-**predictor** — narrow transformer. takes encoder output, inserts mask tokens at span positions, predicts target latent. two modes:
-- span: mask contiguous blocks, predict their latents. iterative refinement (N cheap passes without re-running the encoder). each pass gets a slightly better estimate — like "thinking" in latent space.
-- future: predict h[t+d] from h[t] with learned offset queries. single pass, no refinement. it's a simpler task.
+decoder — weight-tied projection. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it's an implicit anti-collapse framework.
 
-**decoder** — weight-tied projection to token space. auxiliary. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it acts as an implicit anti-collapse signal. doesn't dominate training.
+the differences between text-span jepa, data2vec,  and MLM are best understood by reading their respective compute_loss() functions.
 
-collapse prevention: VICReg (variance margin + covariance decorrelation) + data2vec target centering. these are not optional — JEPA models silently collapse (loss goes down, representations become useless, you wouldn't know unless you check).
-
-loss
-----
-
-```
-L = λ_span · smooth_l1(z_pred, z_target)
-  + λ_future · smooth_l1(z_future, z_target_future)
-  + λ_dec · CE(logits, tokens)
-  + λ_var · max(0, margin − √var)
-  + λ_cov · off_diag(cov)²
-```
-
-future loss has warmup from 0 — early target encoder is unstable, raw future loss injects noise. without warmup, training diverges within the first ~2k steps.
-
-diagnostics
------------
-
-you cannot debug a JEPA by watching loss go down. loss decreases while representations collapse. you need auxiliary metrics. we log 30+ every step:
-
-**nextlat / nextlat-rank (Microsoft Research, 2025)**
-effective_rank — shannon entropy of SVD spectrum. should stay >5, collapse → 1
-participation_ratio — (ΣS)²/ΣS², effective dimensionality. 1 = rank-1 collapse
-condition_number — S[0]/S[-1]. healthy 10–1000, ∞ = degenerate
-numerical_rank — torch.linalg.matrix_rank. should be close to min(N,D)
-rank_utilization — numerical_rank / min(N,D). 0.3–0.9 healthy
-coherence — max |off-diagonal| of covariance. low is healthy
-
-**i-jepa (Assran et al., CVPR 2023)**
-collapsed_dim_ratio — fraction of near-zero-variance dimensions. near 0 is healthy
-sv_entropy — normalized entropy of singular values. 1 = spread spectrum, 0 = single component
-representation_stability — cosine between consecutive target updates. >0.99 is good
-
-**c-jepa / byol (Grill et al., NeurIPS 2020)**
-svd_sharpness — S[0]²/ΣS². 1 = rank-1 collapse. random data ~1/D
-
-**lecun (2022) — jepa position paper**
-alpha_norm — power-law exponent of SVD spectrum. higher = concentrated information
-
-**ansuini et al. (NeurIPS 2019)**
-intrinsic_dim — two-nearest-neighbor intrinsic dimensionality estimate. lower = more structured
-
-**dinov2 (Oquab et al., 2024)**
-mean_pairwise_cosine — intra-batch cosine similarity. high = collapse
-cov_trace — trace of feature covariance / D. near-zero = collapse
-
-**wang & isola (ICLR 2022)**
-uniformity — alignment + uniformity on hypersphere. measures distribution quality
-
-**barlow twins (Zbontar et al., ICML 2021)**
-cross_corr_redundancy — mean |off-diagonal| of cross-correlation matrix. near 0 is healthy
-
-**kornblith et al. (ICML 2019)**
-cka_linear — linear CKA via HSIC. online-target similarity
-cka_rbf — nonlinear CKA via RBF kernel. more sensitive to differences
-
-all follow the nextlat exception pattern: SVD failure → 0.0 (or inf for condition_number). never crash the training loop.
-
-code structure
---------------
-
-```
-src/models/       encoder, predictor, decoder, collapse diagnostics, main model
-src/masks/        span masking with curriculum
-src/datasets/     wikitext-103 / bookcorpus (kaggle-compatible)
-src/utils/        schedulers, logging (from I-JEPA)
-src/eval/         linear probe, future-token probe, geometry metrics
-baselines/        data2vec (from official fairseq), MLM
-configs/          per-size YAML configs
-defaults.yaml     default config (all values, NextLat pattern)
-scripts/          training scripts per benchmark
-tests/            631 tests
-train_probe.py    probe evaluation (NextLat pattern)
-```
-
-the differences between text-span jepa, data2vec, and MLM are best understood by reading their respective `compute_loss()` functions. this follows the nextlat convention.
-
-provenance
-----------
-
-code patterns from reference implementations (variable names changed):
-
-I-JEPA: momentum scheduler, param groups, smooth_l1 loss, layer_norm on targets, trunc_normal_ init, depth-wise rescaling, AverageMeter, CSVLogger, grad_logger
-
-data2vec: get_annealed_rate, regression head (Linear→GELU→Linear), loss scaling by 1/√dim, target centering
-
-NextLat: compute_hidden_state_rank with effective_rank via shannon entropy, exception→0.0, rank_utilization, defaults.yaml
-
-VICReg: variance margin, off-diagonal covariance penalty
-
-Barlow Twins: cross-correlation redundancy
-
-Kornblith et al.: linear CKA via HSIC, RBF CKA
 
 cite
 ----
@@ -155,26 +62,6 @@ license
 
 apache 2.0
 
-novel mechanisms (16 total)
----------------------------
+novel mechanisms (16 in total)
 
-each mechanism addresses a specific failure mode of standard JEPA, with a mathematical guarantee:
-
-1. **JAWP** (Jacobian-Aligned Workspace Prediction) — predictor capacity waste. Courant-Fischer optimality: Q ∈ St(D,k) aligns with most predictable directions, not highest-variance.
-2. **WIP** (Workspace Information Preservation) — if I(f_exo; z_target) > 0, then span(Q_JAWP) contains non-trivial projection of f_exo. Theorem, not heuristic.
-3. **Spectral Gap Detection** — automatic k* from Marchenko-Pastur law + largest spectral gap in residual covariance.
-4. **Grassmann Workspace Optimization** — fiber projection on Gr(k,D), converges to Riemannian gradient flow.
-5. **Predictive Rank Regularization** — log-det barrier prevents rank collapse: L = -log det(Q^T Cov(z_pred) Q + εI).
-6. **CGN** (Contextual Gating Network) — suboptimal information routing. I(g_v ⊙ Z; Y) + I(g_m ⊙ Z; Y) ≥ I(Z; Y) when gates are orthogonal.
-7. **SWIP** (Selective Whitening with Info Preservation) — representation anisotropy. Whitens background, preserves workspace hierarchy. L = Σ(log λ_i - log σ²)² for i > k.
-8. **PCR** (Predictive Cascade Refinement) — information bottleneck. I(z_ctx; z_L) ≥ I(z_ctx; z_0) + Σ I(r_{l-1}; P_l r_{l-1}) with orthogonal P_l.
-9. **SPC** (Spectral Predictive Coding) — frequency-dependent information loss. Band-specific weights w_b ∝ σ²_b × ρ²_b allocate capacity proportional to information content per frequency band.
-10. **WSD** (Workspace-Target Synchronization Drift) — workspace-target desynchronization. Drift bound: Δ(t) ≤ Δ(0)·exp(-λ·t) + ν_max/λ. Monitors Grassmann distance between JAWP workspace and target encoder's actual workspace.
-11. **CMC** (Cross-Mask Consistency Regularization) — multi-mask prediction inconsistency. When the same input is masked twice, predictions at overlapping positions should agree. Stability theorem: |f(z_pred_1) - f(z_pred_2)| ≤ ||w|| · √(L_CMC) for any downstream linear probe f. Free training signal at zero label cost.
-12. **GAC** (Gradient-Allocated Capacity) — background gradient starvation. When JAWP focuses on workspace, background dimensions receive zero gradient and cannot learn. GAC adds exploration bonus to starved dimensions: L = γ·Σ_i max(0, τ - ||g_i||)·||z_i||². Theorem: no gradient dead zones — every active dimension receives training signal.
-13. **STA** (Spectral Transport Alignment) — spectral drift destabilizes workspace. Wasserstein-1 distance between current and EMA reference eigenvalue distributions: L = η·W_1(λ_current, λ_ref). Davis-Kahan bound: d_Gr(Q_k(t), Q_k(t+1)) ≤ W_1/δ. STA bounds W_1, thus bounding workspace drift.
-14. **PUC** (Prediction Uncertainty Calibration) — predictor overconfidence. Minimum entropy regularization via log-determinant barrier. By Donsker-Varadhan duality, this is the tightest convex relaxation of the entropy constraint H(Z_pred) ≥ H_target. Minimax optimality for bounded downstream losses.
-15. **RDC** (Representation Drift Compensation) — exogenous feature loss (Pendharkar et al., 2026). Decomposes drift into workspace-parallel and orthogonal: Δz = Δz_∥ + Δz_⊥. Penalizes orthogonal drift: L = η·||Δz_⊥||². Drift Compensation Bound: ||z_{⊥,T} - z_{⊥,0}|| ≤ ε(1-η)^T · T/√k. First mechanism to directly address Pendharkar's problem.
-16. **WSR** (Workspace Sharpness Regularization) — sharp workspace minima under distribution shift. Penalizes worst-case loss increase when Q is perturbed on Gr(k,D): L = ρ·||∇_Gr L(Q)||_F / ||Q||_F. Workspace Generalization Bound: |L_train - L_test| ≤ C·√(ρ_Q/n). Grassmann Sharpness Decomposition: ρ_Q = ρ_spectral + ρ_directional. STA bounds ρ_spectral, WSR bounds ρ_directional → COMPLETE stability.
-
-all mechanisms are drop-in: 2-3 lines to add to any JEPA variant. see `src/models/mechanisms.py` for the MechanismBundle API.
+each mechanism addresses a specific failure mode of standard JEPA, with a mathematical guarantee, which I hope will help to Large JEPA models
