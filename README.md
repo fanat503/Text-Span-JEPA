@@ -62,6 +62,6 @@ license
 
 apache 2.0
 
-novel mechanisms (16 in total)
+novel mechanisms (16)
 
 each mechanism addresses a specific failure mode of standard JEPA, with a mathematical guarantee, which I hope will help to Large JEPA models
