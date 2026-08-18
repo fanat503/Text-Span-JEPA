@@ -6,7 +6,6 @@ latent prediction at masked spans + future positions.
 not token reconstruction. predict in latent space — that's the point of JEPA (LeCun). the encoder learns what matters because it shouldn't waste capacity on useless details.
 
 something like twist: span masking forces the model to use broader context. future latent prediction gives it a reason to encode directionality.
-
 ---
 
 setup
