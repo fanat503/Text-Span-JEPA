@@ -209,7 +209,10 @@ class TestVisualization:
         from src.utils.visualization import plot_eigenvalue_spectrum
 
         eigs = np.exp(-np.arange(64) * 0.1)
-        fig, _ax = plot_eigenvalue_spectrum(eigs, highlight_k=10)
+        result = plot_eigenvalue_spectrum(eigs, highlight_k=10)
+        if result is None:
+            return  # matplotlib not available
+        fig, _ax = result
         assert fig is not None
         import matplotlib.pyplot as plt
 
@@ -223,7 +226,10 @@ class TestVisualization:
             "future": [0.5, 0.4, 0.3, 0.2],
             "variance": [0.1, 0.08, 0.06, 0.04],
         }
-        fig, _ax = plot_stacked_losses(history)
+        result = plot_stacked_losses(history)
+        if result is None:
+            return  # matplotlib not available
+        fig, _ax = result
         assert fig is not None
         import matplotlib.pyplot as plt
 
