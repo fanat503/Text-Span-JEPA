@@ -1,3 +1,5 @@
+This repo was reviewed by LLM due to my bad English, but i really tried to do it maximally readable, and reviewed it a lot of times :)
+
 text-span-jepa
 ==============
 
@@ -30,7 +32,7 @@ everything in the YAML, nothing on the CLI.
 
 resume: set `meta.load_checkpoint: true` in the config. picks up from `checkpoint-latest.pth.tar`.
 
-configs: `debug.yaml` (sanity), `small-100m.yaml` (~90M, 16GB), `base-200m.yaml` (~140M, 24GB), `large-350m.yaml` (~280M, 40GB), `kaggle.yaml` (tuned for T4).
+configs: `debug.yaml` (something like sanity), `small-100m.yaml` (almost 100M), `base-200m.yaml` (something aroud 140M, but i did it because of GPU efficiency), `large-350m.yaml` (almost 300M), `kaggle.yaml` (created for T4 in Kaggle).
 
 architecture
 ------------
