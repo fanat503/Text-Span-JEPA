@@ -41,7 +41,7 @@ encoder — bidirectional transformer. same architecture for online and target. 
 
 predictor — narrow transformer. takes encoder output, do what it think matters and predicts target latent. two modes:
 - span: mask contiguous blocks, predict their latents
-- future: predict future positions from current with learned offset queries. it's a simpler task.
+- future: predict future positions from current with learned offset queries.
 
 decoder — weight-tied projection. if latents collapse to a uniform vector, the decoder can't predict different tokens, so it's an implicit anti-collapse framework.
 
