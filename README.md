@@ -1,4 +1,4 @@
-This repo was a bit edited by LLM due to my bad English, but i really tried to do it maximally readable, and reviewed it a lot of times :)
+This repo was a bit edited by LLM due to my English, but i really tried to do it maximally readable, and reviewed it a lot of times :)
 
 text-span-jepa
 ==============
